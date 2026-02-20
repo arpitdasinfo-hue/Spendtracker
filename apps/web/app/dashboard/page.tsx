@@ -11,6 +11,9 @@ export default async function DashboardPage() {
     <main style={{ padding: 24 }}>
       <h1>Dashboard ✅</h1>
       <p>Logged in as: {data.user.email}</p>
+      <p>
+        <a href="/settings/link-telegram">Link Telegram</a>
+      </p>
     </main>
   );
 }
