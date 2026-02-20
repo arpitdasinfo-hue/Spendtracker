@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { supabaseBrowser } from "@/lib/supabase/browser";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const [msg, setMsg] = useState<string | null>(null);
 
   async function loginWithGoogle() {
     setMsg(null);
-    const supabase = supabaseBrowser();
+    const supabase = createSupabaseBrowserClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
