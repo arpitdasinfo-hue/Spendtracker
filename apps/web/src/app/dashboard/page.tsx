@@ -1,10 +1,11 @@
+import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export default async function DashboardPage() {
   const supabase = await supabaseServer();
 
   const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user!;
+  if (!userData.user) redirect("/login");
 
   const { data: txns, error } = await supabase
     .from("transactions")
@@ -15,7 +16,7 @@ export default async function DashboardPage() {
   return (
     <main style={{ padding: 24 }}>
       <h1>Dashboard</h1>
-      <p>Logged in as: {user.email}</p>
+      <p>Logged in as: {userData.user.email}</p>
       <p>
         Go to <a href="/settings/link-telegram">Link Telegram</a>
       </p>
