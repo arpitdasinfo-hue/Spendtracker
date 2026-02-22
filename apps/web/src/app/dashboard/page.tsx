@@ -3,9 +3,10 @@ import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import QuickAddDrawer from "@/components/QuickAddDrawer";
 import ProgressRing from "@/components/ProgressRing";
+import { currencySymbol } from "@/lib/currency";
 
-function inr(n: number) {
-  return n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+function fmt(sym: string, n: number) {
+  return `${sym}${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
 
 export default async function DashboardPage() {
@@ -13,12 +14,20 @@ export default async function DashboardPage() {
   const { data } = await supabase.auth.getUser();
   if (!data.user) redirect("/login");
 
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("currency_code")
+    .eq("id", data.user.id)
+    .maybeSingle();
+
+  const sym = currencySymbol(prof?.currency_code ?? "INR");
+
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
   const { data: txns } = await supabase
     .from("transactions")
-    .select("id, direction, amount, note, category, created_at")
+    .select("id, direction, amount, note, created_at, category_id")
     .gte("created_at", monthStart)
     .order("created_at", { ascending: false })
     .limit(12);
@@ -66,13 +75,13 @@ export default async function DashboardPage() {
             <div className="pill">
               <span>✨</span>
               <span className="muted">Quick Capture</span>
-              <span className="kbd">fast</span>
+              <span className="kbd">{sym}</span>
             </div>
             <span className="badge">This month</span>
           </div>
 
           <p className="muted" style={{ marginTop: 10, marginBottom: 10 }}>
-            One-line add: <span className="kbd">spent 250 groceries #food</span>
+            Quick add using amount + note + category.
           </p>
 
           <QuickAddDrawer />
@@ -96,20 +105,20 @@ export default async function DashboardPage() {
           <div className="pill">
             <span>📈</span>
             <span className="muted">Snapshot</span>
-            <span className="kbd">INR</span>
+            <span className="kbd">{sym}</span>
           </div>
 
           <div style={{ marginTop: 14 }}>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <span className="muted">Income</span>
               <span className="money" style={{ color: "var(--good)", fontWeight: 800 }}>
-                ₹{inr(income)}
+                {fmt(sym, income)}
               </span>
             </div>
             <div className="row" style={{ justifyContent: "space-between", marginTop: 10 }}>
               <span className="muted">Expense</span>
               <span className="money" style={{ color: "var(--bad)", fontWeight: 800 }}>
-                ₹{inr(expense)}
+                {fmt(sym, expense)}
               </span>
             </div>
 
@@ -126,49 +135,6 @@ export default async function DashboardPage() {
             )}
           </div>
         </div>
-      </div>
-
-      <div className="card cardPad" style={{ marginTop: 12 }}>
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <div className="pill">
-            <span>🧾</span><span className="muted">Recent</span>
-          </div>
-          <Link href="/transactions" className="badge">Open list →</Link>
-        </div>
-
-        <div className="sep" />
-
-        {(!txns || txns.length === 0) ? (
-          <p className="muted">No transactions yet. Add your first one ✨</p>
-        ) : (
-          <div className="col" style={{ gap: 10 }}>
-            {txns.map((t) => (
-              <div key={t.id} className="row" style={{ justifyContent: "space-between" }}>
-                <div className="row" style={{ gap: 10 }}>
-                  <span className={`badge ${t.direction === "income" ? "badgeGood" : "badgeBad"}`}>
-                    {t.direction === "income" ? "IN" : "OUT"}
-                  </span>
-                  <div>
-                    <div style={{ fontWeight: 650 }}>
-                      {t.note}
-                      {t.category ? <span className="badge" style={{ marginLeft: 8 }}>#{t.category}</span> : null}
-                    </div>
-                    <div className="faint" style={{ fontSize: 12 }}>
-                      {new Date(t.created_at).toLocaleString("en-IN")}
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  className="money"
-                  style={{ fontWeight: 800, color: t.direction === "income" ? "var(--good)" : "var(--bad)" }}
-                >
-                  {t.direction === "income" ? "+" : "-"}₹{inr(Number(t.amount ?? 0))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </main>
   );
