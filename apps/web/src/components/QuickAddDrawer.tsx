@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import SearchSelect, { SearchItem } from "@/components/SearchSelect";
 import { useCurrencySymbol } from "@/lib/useCurrency";
+import TagChips, { TxnTag } from "@/components/TagChips";
 
 export default function QuickAddDrawer() {
   const supabase = createSupabaseBrowserClient();
@@ -17,8 +18,13 @@ export default function QuickAddDrawer() {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
 
+  const [tag, setTag] = useState<TxnTag>("personal");
+
   const [categories, setCategories] = useState<SearchItem[]>([]);
   const [categoryId, setCategoryId] = useState<string | null>(null);
+
+  const [methods, setMethods] = useState<SearchItem[]>([]);
+  const [paymentMethodId, setPaymentMethodId] = useState<string | null>(null);
 
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -28,20 +34,26 @@ export default function QuickAddDrawer() {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) return;
 
-      const { data, error } = await supabase
+      const { data: c, error: cErr } = await supabase
         .from("categories")
         .select("id, name, is_active")
         .eq("is_active", true)
         .order("name", { ascending: true });
 
-      if (!error) {
-        setCategories((data ?? []).map((c: any) => ({ id: c.id, label: c.name })));
-      }
+      if (!cErr) setCategories((c ?? []).map((x: any) => ({ id: x.id, label: x.name })));
+
+      const { data: m, error: mErr } = await supabase
+        .from("payment_methods")
+        .select("id, name, channel, is_active")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false });
+
+      if (!mErr) setMethods((m ?? []).map((x: any) => ({ id: x.id, label: x.name, sublabel: x.channel })));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const hint = useMemo(() => (open ? "Fast entry: choose category + hit save." : "Tap to quick add"), [open]);
+  const hint = useMemo(() => (open ? "Fast entry: choose category + payment method + save." : "Tap to quick add"), [open]);
 
   async function save() {
     setMsg(null);
@@ -69,6 +81,8 @@ export default function QuickAddDrawer() {
       amount: amt,
       note: finalNote,
       category_id: categoryId,
+      payment_method_id: paymentMethodId,
+      tag,
       occurred_at: new Date().toISOString(),
       payment_method: "quick_drawer",
     });
@@ -79,6 +93,8 @@ export default function QuickAddDrawer() {
     setAmount("");
     setNote("");
     setCategoryId(null);
+    setPaymentMethodId(null);
+    setTag("personal");
     setMsg("Saved ✅");
     router.refresh();
     setTimeout(() => { setMsg(null); setOpen(false); }, 900);
@@ -131,11 +147,21 @@ export default function QuickAddDrawer() {
             onChange={setCategoryId}
           />
 
+          <SearchSelect
+            label="Payment method"
+            placeholder="Select payment method…"
+            items={methods}
+            valueId={paymentMethodId}
+            onChange={setPaymentMethodId}
+          />
+
+          <TagChips value={tag} onChange={setTag} />
+
           <div className="row">
             <button className="btn btnPrimary" style={{ flex: 1 }} onClick={save} disabled={loading}>
               {loading ? "Saving…" : "Save"}
             </button>
-            <button className="btn" style={{ flex: 1 }} onClick={() => { setAmount(""); setNote(""); setCategoryId(null); }} disabled={loading} type="button">
+            <button className="btn" style={{ flex: 1 }} onClick={() => { setAmount(""); setNote(""); setCategoryId(null); setPaymentMethodId(null); setTag("personal"); }} disabled={loading} type="button">
               Clear
             </button>
           </div>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import SearchSelect, { SearchItem } from "@/components/SearchSelect";
 import { useCurrencySymbol } from "@/lib/useCurrency";
+import TagChips, { TxnTag } from "@/components/TagChips";
 
 export default function AddPage() {
   const supabase = createSupabaseBrowserClient();
@@ -15,8 +16,13 @@ export default function AddPage() {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
 
+  const [tag, setTag] = useState<TxnTag>("personal");
+
   const [categories, setCategories] = useState<SearchItem[]>([]);
   const [categoryId, setCategoryId] = useState<string | null>(null);
+
+  const [methods, setMethods] = useState<SearchItem[]>([]);
+  const [paymentMethodId, setPaymentMethodId] = useState<string | null>(null);
 
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -26,13 +32,21 @@ export default function AddPage() {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) return router.replace("/login");
 
-      const { data, error } = await supabase
+      const { data: c, error: cErr } = await supabase
         .from("categories")
         .select("id, name, is_active")
         .eq("is_active", true)
         .order("name", { ascending: true });
 
-      if (!error) setCategories((data ?? []).map((c: any) => ({ id: c.id, label: c.name })));
+      if (!cErr) setCategories((c ?? []).map((x: any) => ({ id: x.id, label: x.name })));
+
+      const { data: m, error: mErr } = await supabase
+        .from("payment_methods")
+        .select("id, name, channel, is_active")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false });
+
+      if (!mErr) setMethods((m ?? []).map((x: any) => ({ id: x.id, label: x.name, sublabel: x.channel })));
     })();
   }, [router]);
 
@@ -59,6 +73,8 @@ export default function AddPage() {
       amount: amt,
       note: (note || (direction === "expense" ? "expense" : "income")).slice(0, 80),
       category_id: categoryId,
+      payment_method_id: paymentMethodId,
+      tag,
       occurred_at: new Date().toISOString(),
       payment_method: "manual_form",
     });
@@ -72,7 +88,7 @@ export default function AddPage() {
   return (
     <main className="container">
       <h1 className="h1">Add</h1>
-      <p className="sub">Clean entry. Neon vibe. Done in 3 seconds.</p>
+      <p className="sub">Full entry: category + payment method + tag.</p>
 
       <div className="card cardPad" style={{ marginTop: 14 }}>
         <div className="row" style={{ justifyContent: "space-between" }}>
@@ -113,6 +129,14 @@ export default function AddPage() {
         <div style={{ height: 12 }} />
 
         <SearchSelect label="Category" placeholder="Select category…" items={categories} valueId={categoryId} onChange={setCategoryId} />
+
+        <div style={{ height: 12 }} />
+
+        <SearchSelect label="Payment method" placeholder="Select payment method…" items={methods} valueId={paymentMethodId} onChange={setPaymentMethodId} />
+
+        <div style={{ height: 12 }} />
+
+        <TagChips value={tag} onChange={setTag} />
 
         <div className="row" style={{ marginTop: 14 }}>
           <button className="btn btnPrimary" style={{ flex: 1 }} onClick={save} disabled={loading}>

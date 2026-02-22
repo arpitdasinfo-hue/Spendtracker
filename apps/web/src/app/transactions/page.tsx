@@ -10,9 +10,22 @@ type Txn = {
   direction: "expense" | "income";
   amount: number | null;
   note: string;
-  category: string | null;
   created_at: string;
+  payment_method_id: string | null;
+  tag: "personal" | "official" | "receivable" | "payable" | null;
 };
+
+type Method = { id: string; name: string; channel: string; is_active: boolean };
+
+function tagLabel(t: Txn["tag"]) {
+  switch (t) {
+    case "official": return "Official";
+    case "receivable": return "Receivable";
+    case "payable": return "Payable";
+    case "personal":
+    default: return "Personal";
+  }
+}
 
 export default function TransactionsPage() {
   const supabase = createSupabaseBrowserClient();
@@ -21,25 +34,31 @@ export default function TransactionsPage() {
 
   const [q, setQ] = useState("");
   const [items, setItems] = useState<Txn[]>([]);
+  const [methods, setMethods] = useState<Map<string, Method>>(new Map());
   const [msg, setMsg] = useState<string | null>(null);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDirection, setEditDirection] = useState<"expense" | "income">("expense");
   const [editAmount, setEditAmount] = useState<string>("");
   const [editNote, setEditNote] = useState<string>("");
-  const [editCategory, setEditCategory] = useState<string>("");
 
   async function load() {
     setMsg(null);
     const { data: u } = await supabase.auth.getUser();
-    if (!u.user) {
-      router.replace("/login");
-      return;
-    }
+    if (!u.user) return router.replace("/login");
+
+    const { data: m } = await supabase
+      .from("payment_methods")
+      .select("id, name, channel, is_active")
+      .order("created_at", { ascending: false });
+
+    const map = new Map<string, Method>();
+    (m ?? []).forEach((x: any) => map.set(x.id, x));
+    setMethods(map);
 
     const { data, error } = await supabase
       .from("transactions")
-      .select("id, direction, amount, note, category, created_at")
+      .select("id, direction, amount, note, created_at, payment_method_id, tag")
       .order("created_at", { ascending: false })
       .limit(500);
 
@@ -54,20 +73,21 @@ export default function TransactionsPage() {
     if (!s) return items;
     return items.filter((t) => {
       const a = String(t.amount ?? "");
+      const pm = t.payment_method_id ? methods.get(t.payment_method_id)?.name ?? "" : "";
       return (
         (t.note ?? "").toLowerCase().includes(s) ||
-        (t.category ?? "").toLowerCase().includes(s) ||
-        a.includes(s)
+        a.includes(s) ||
+        pm.toLowerCase().includes(s) ||
+        tagLabel(t.tag).toLowerCase().includes(s)
       );
     });
-  }, [q, items]);
+  }, [q, items, methods]);
 
   function startEdit(t: Txn) {
     setEditingId(t.id);
     setEditDirection(t.direction);
     setEditAmount(String(t.amount ?? ""));
     setEditNote(t.note ?? "");
-    setEditCategory(t.category ?? "");
   }
 
   async function saveEdit() {
@@ -86,14 +106,10 @@ export default function TransactionsPage() {
         direction: editDirection,
         amount: amt,
         note: (editNote || (editDirection === "expense" ? "expense" : "income")).slice(0, 80),
-        category: editCategory.trim() ? editCategory.trim() : null,
       })
       .eq("id", editingId);
 
-    if (error) {
-      setMsg(error.message);
-      return;
-    }
+    if (error) return setMsg(error.message);
 
     setEditingId(null);
     await load();
@@ -105,10 +121,8 @@ export default function TransactionsPage() {
 
     setMsg(null);
     const { error } = await supabase.from("transactions").delete().eq("id", id);
-    if (error) {
-      setMsg(error.message);
-      return;
-    }
+    if (error) return setMsg(error.message);
+
     await load();
   }
 
@@ -117,7 +131,7 @@ export default function TransactionsPage() {
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
           <h1 className="h1">Transactions</h1>
-          <p className="sub">Search by note, category, or amount. Edit/delete from here.</p>
+          <p className="sub">Search by note, amount, payment method, or tag.</p>
         </div>
         <button className="btn btnPrimary" onClick={() => router.push("/add")}>
           ＋ Add
@@ -125,7 +139,7 @@ export default function TransactionsPage() {
       </div>
 
       <div className="card cardPad" style={{ marginTop: 14 }}>
-        <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search: rent / 450 / ${sym}…`} />
+        <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search: rent / ${sym}450 / UPI / Official…`} />
       </div>
 
       {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
@@ -137,6 +151,7 @@ export default function TransactionsPage() {
           <div className="col" style={{ gap: 10 }}>
             {filtered.map((t) => {
               const isEditing = editingId === t.id;
+              const pm = t.payment_method_id ? methods.get(t.payment_method_id) : null;
 
               return (
                 <div key={t.id} className="card" style={{ padding: 12, borderRadius: 18 }}>
@@ -146,12 +161,16 @@ export default function TransactionsPage() {
                         <span className={`badge ${t.direction === "income" ? "badgeGood" : "badgeBad"}`}>
                           {t.direction === "income" ? "↘ IN" : "↗ OUT"}
                         </span>
+
                         <div>
-                          <div style={{ fontWeight: 650 }}>
-                            {t.note}
-                            {t.category ? <span className="badge" style={{ marginLeft: 8 }}>#{t.category}</span> : null}
+                          <div style={{ fontWeight: 650 }}>{t.note}</div>
+
+                          <div className="row" style={{ gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                            <span className="badge">{tagLabel(t.tag)}</span>
+                            {pm ? <span className="badge">{pm.name}</span> : <span className="badge">No method</span>}
                           </div>
-                          <div className="faint" style={{ fontSize: 12 }}>
+
+                          <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
                             {new Date(t.created_at).toLocaleString("en-IN")}
                           </div>
                         </div>
@@ -187,9 +206,6 @@ export default function TransactionsPage() {
 
                       <label className="muted">Note</label>
                       <input className="input" value={editNote} onChange={(e) => setEditNote(e.target.value)} />
-
-                      <label className="muted">Category</label>
-                      <input className="input" value={editCategory} onChange={(e) => setEditCategory(e.target.value)} placeholder="Food, Travel…" />
 
                       <div className="row">
                         <button className="btn btnPrimary" onClick={saveEdit} style={{ flex: 1 }}>Save</button>
