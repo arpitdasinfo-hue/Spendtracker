@@ -1,6 +1,6 @@
 import "./globals.css";
 import TabBar from "@/components/TabBar";
-import PageTransition from "@/components/PageTransition";
+import TransitionOverlay from "@/components/TransitionOverlay";
 
 export const metadata = {
   title: "SpendTracker",
@@ -11,7 +11,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <PageTransition>{children}</PageTransition>
+        {/* Overlay handles transitions; page content stays stable */}
+        <TransitionOverlay />
+        {children}
         <TabBar />
       </body>
     </html>
