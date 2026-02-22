@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import QuickAdd from "@/components/QuickAdd";
+import ProgressRing from "@/components/ProgressRing";
 
 function inr(n: number) {
   return n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -11,6 +12,28 @@ export default async function DashboardPage() {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
   if (!data.user) redirect("/login");
+
+  // Budget
+  const { data: b } = await supabase
+    .from("budgets")
+    .select("monthly_budget")
+    .eq("user_id", data.user.id)
+    .maybeSingle();
+
+  const monthlyBudget = Number(b?.monthly_budget ?? 0);
+
+  // This month expense
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+  const { data: monthTxns } = await supabase
+    .from("transactions")
+    .select("direction, amount, created_at")
+    .gte("created_at", monthStart);
+
+  const spentThisMonth = (monthTxns ?? [])
+    .filter((t) => t.direction === "expense")
+    .reduce((s, t) => s + Number(t.amount ?? 0), 0);
 
   // last 30 days totals
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -92,6 +115,18 @@ export default async function DashboardPage() {
             <span className="muted">Snapshot</span>
             <span className="kbd">INR</span>
           </div>
+
+          {monthlyBudget > 0 ? (
+            <div style={{ marginTop: 14 }}>
+              <ProgressRing value={spentThisMonth} total={monthlyBudget} />
+            </div>
+          ) : (
+            <div style={{ marginTop: 14 }} className="toast">
+              <span className="muted">Set a monthly budget in </span>
+              <Link href="/budget">Budget</Link>
+              <span className="muted"> to unlock the progress ring.</span>
+            </div>
+          )}
 
           <div style={{ marginTop: 14 }}>
             <div className="row" style={{ justifyContent: "space-between" }}>

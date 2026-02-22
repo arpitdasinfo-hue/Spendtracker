@@ -16,6 +16,7 @@ export default function TabBar() {
     { href: "/add", label: "Add", icon: "＋" },
     { href: "/transactions", label: "Txns", icon: "≡" },
     { href: "/analysis", label: "Analysis", icon: "⬡" },
+    { href: "/budget", label: "Budget", icon: "◔" },
     { href: "/settings", label: "Settings", icon: "⚙︎" },
   ];
 
