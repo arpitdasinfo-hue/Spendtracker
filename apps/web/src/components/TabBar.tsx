@@ -17,7 +17,7 @@ export default function TabBar() {
     { href: "/transactions", label: "Txns", icon: "≡" },
     { href: "/analysis", label: "Analysis", icon: "⬡" },
     { href: "/budget", label: "Budget", icon: "◔" },
-    { href: "/settings", label: "Settings", icon: "⚙︎" },
+    { href: "/config", label: "Config", icon: "⚙︎" },
   ];
 
   return (
@@ -25,11 +25,7 @@ export default function TabBar() {
       {tabs.map((t) => {
         const active = isActive(path, t.href);
         return (
-          <Link
-            key={t.href}
-            href={t.href}
-            className={`tab ${active ? "tabActive" : ""}`}
-          >
+          <Link key={t.href} href={t.href} className={`tab ${active ? "tabActive" : ""}`}>
             <span aria-hidden>{t.icon}</span>
             <span>{t.label}</span>
           </Link>

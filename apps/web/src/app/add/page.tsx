@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import SearchSelect, { SearchItem } from "@/components/SearchSelect";
 
 export default function AddPage() {
   const supabase = createSupabaseBrowserClient();
@@ -11,22 +12,34 @@ export default function AddPage() {
   const [direction, setDirection] = useState<"expense" | "income">("expense");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
-  const [category, setCategory] = useState("");
+
+  const [categories, setCategories] = useState<SearchItem[]>([]);
+  const [categoryId, setCategoryId] = useState<string | null>(null);
+
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) router.replace("/login");
-    });
+    (async () => {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) return router.replace("/login");
+
+      const { data, error } = await supabase
+        .from("categories")
+        .select("id, name, is_active")
+        .eq("is_active", true)
+        .order("name", { ascending: true });
+
+      if (!error) setCategories((data ?? []).map((c: any) => ({ id: c.id, label: c.name })));
+    })();
   }, [router]);
 
   async function save() {
     setMsg(null);
     setLoading(true);
 
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) {
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) {
       setLoading(false);
       router.replace("/login");
       return;
@@ -35,22 +48,20 @@ export default function AddPage() {
     const amt = Number(amount);
     if (!amt || Number.isNaN(amt) || amt <= 0) {
       setLoading(false);
-      setMsg("Enter a valid amount (e.g., 250).");
-      return;
+      return setMsg("Enter a valid amount (e.g., 250).");
     }
 
     const { error } = await supabase.from("transactions").insert({
-      user_id: data.user.id,
+      user_id: u.user.id,
       direction,
       amount: amt,
       note: (note || (direction === "expense" ? "expense" : "income")).slice(0, 80),
-      category: category.trim() ? category.trim() : null,
+      category_id: categoryId,
       occurred_at: new Date().toISOString(),
       payment_method: "manual_form",
     });
 
     setLoading(false);
-
     if (error) return setMsg(error.message);
 
     router.replace("/dashboard");
@@ -63,8 +74,10 @@ export default function AddPage() {
 
       <div className="card cardPad" style={{ marginTop: 14 }}>
         <div className="row" style={{ justifyContent: "space-between" }}>
-          <div className="pill">
-            <span>{direction === "expense" ? "↘" : "↗"}</span>
+          <div className={`pill ${direction === "expense" ? "dirPillOut" : "dirPillIn"}`}>
+            <span className={direction === "expense" ? "directionOut" : "directionIn"}>
+              {direction === "expense" ? "↗" : "↘"}
+            </span>
             <span className="muted">{direction === "expense" ? "Expense" : "Income"}</span>
           </div>
 
@@ -109,13 +122,14 @@ export default function AddPage() {
           style={{ marginTop: 8 }}
         />
 
-        <label className="muted" style={{ marginTop: 12, display: "block" }}>Category (optional)</label>
-        <input
-          className="input"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          placeholder="Food, Travel, Bills…"
-          style={{ marginTop: 8 }}
+        <div style={{ height: 12 }} />
+
+        <SearchSelect
+          label="Category"
+          placeholder="Select category…"
+          items={categories}
+          valueId={categoryId}
+          onChange={setCategoryId}
         />
 
         <div className="row" style={{ marginTop: 14 }}>

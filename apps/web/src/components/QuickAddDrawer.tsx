@@ -1,49 +1,44 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-
-function parse(textRaw: string) {
-  const text = textRaw.trim();
-  const lower = text.toLowerCase();
-
-  const direction =
-    lower.startsWith("income") ||
-    lower.startsWith("earned") ||
-    lower.startsWith("received")
-      ? "income"
-      : "expense";
-
-  const catMatch = text.match(/#([a-zA-Z0-9_\-]+)/);
-  const category = catMatch ? catMatch[1] : null;
-
-  const m = text.match(/(\d+(?:\.\d+)?)/);
-  const amount = m ? Number(m[1]) : null;
-
-  let note = text;
-  if (catMatch) note = note.replace(catMatch[0], "");
-  if (m) note = note.replace(m[0], "");
-  note = note.replace(/^(spent|paid|expense|income|earned|received)\s*/i, "").trim();
-  if (!note) note = direction === "income" ? "income" : "expense";
-
-  return { direction, amount, note, category };
-}
+import SearchSelect, { SearchItem } from "@/components/SearchSelect";
 
 export default function QuickAddDrawer() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
 
   const [open, setOpen] = useState(false);
-  const [text, setText] = useState("");
+
+  const [direction, setDirection] = useState<"expense" | "income">("expense");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+
+  const [categories, setCategories] = useState<SearchItem[]>([]);
+  const [categoryId, setCategoryId] = useState<string | null>(null);
+
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const hint = useMemo(() => {
-    return open
-      ? "Try: spent 250 groceries #food"
-      : "Tap to quick add";
-  }, [open]);
+  useEffect(() => {
+    (async () => {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) return;
+
+      const { data, error } = await supabase
+        .from("categories")
+        .select("id, name, is_active")
+        .eq("is_active", true)
+        .order("name", { ascending: true });
+
+      if (!error) {
+        setCategories((data ?? []).map((c: any) => ({ id: c.id, label: c.name })));
+      }
+    })();
+  }, []);
+
+  const hint = useMemo(() => (open ? "Fast entry: choose category + hit save." : "Tap to quick add"), [open]);
 
   async function save() {
     setMsg(null);
@@ -56,37 +51,34 @@ export default function QuickAddDrawer() {
       return;
     }
 
-    const { direction, amount, note, category } = parse(text);
-
-    if (!amount || Number.isNaN(amount) || amount <= 0) {
+    const amt = Number(amount);
+    if (!amt || Number.isNaN(amt) || amt <= 0) {
       setLoading(false);
-      setMsg("Add an amount, e.g. “spent 250 groceries”.");
+      setMsg("Enter a valid amount (e.g. 250).");
       return;
     }
+
+    const finalNote = (note || (direction === "expense" ? "expense" : "income")).slice(0, 80);
 
     const { error } = await supabase.from("transactions").insert({
       user_id: u.user.id,
       direction,
-      amount,
-      note: note.slice(0, 80),
-      category,
+      amount: amt,
+      note: finalNote,
+      category_id: categoryId,
       occurred_at: new Date().toISOString(),
       payment_method: "quick_drawer",
     });
 
     setLoading(false);
-    if (error) {
-      setMsg(error.message);
-      return;
-    }
+    if (error) return setMsg(error.message);
 
-    setText("");
+    setAmount("");
+    setNote("");
+    setCategoryId(null);
     setMsg("Saved ✅");
     router.refresh();
-    setTimeout(() => {
-      setMsg(null);
-      setOpen(false);
-    }, 900);
+    setTimeout(() => { setMsg(null); setOpen(false); }, 900);
   }
 
   return (
@@ -104,25 +96,52 @@ export default function QuickAddDrawer() {
 
       {open && (
         <div className="col" style={{ marginTop: 10 }}>
-          <input
-            className="input"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="spent 250 groceries #food"
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <div className={`pill ${direction === "expense" ? "dirPillOut" : "dirPillIn"}`}>
+              <span className={direction === "expense" ? "directionOut" : "directionIn"}>
+                {direction === "expense" ? "↗" : "↘"}
+              </span>
+              <span className="muted">{direction === "expense" ? "Expense" : "Income"}</span>
+            </div>
+
+            <div className="row">
+              <button
+                className={`btn ${direction === "expense" ? "btnDanger" : ""}`}
+                type="button"
+                onClick={() => setDirection("expense")}
+              >
+                Expense
+              </button>
+              <button
+                className={`btn ${direction === "income" ? "btnPrimary" : ""}`}
+                type="button"
+                onClick={() => setDirection("income")}
+              >
+                Income
+              </button>
+            </div>
+          </div>
+
+          <label className="muted">Amount (INR)</label>
+          <input className="input money" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="250" />
+
+          <label className="muted">Note</label>
+          <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="chai, groceries…" />
+
+          <SearchSelect
+            label="Category"
+            placeholder="Select category…"
+            items={categories}
+            valueId={categoryId}
+            onChange={setCategoryId}
           />
 
           <div className="row">
             <button className="btn btnPrimary" style={{ flex: 1 }} onClick={save} disabled={loading}>
               {loading ? "Saving…" : "Save"}
             </button>
-            <button
-              className="btn"
-              style={{ flex: 1 }}
-              onClick={() => setText("spent 250 groceries #food")}
-              disabled={loading}
-              type="button"
-            >
-              Example
+            <button className="btn" style={{ flex: 1 }} onClick={() => { setAmount(""); setNote(""); setCategoryId(null); }} disabled={loading} type="button">
+              Clear
             </button>
           </div>
 
