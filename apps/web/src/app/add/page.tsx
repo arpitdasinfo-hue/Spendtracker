@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import SearchSelect, { SearchItem } from "@/components/SearchSelect";
+import { useCurrencySymbol } from "@/lib/useCurrency";
 
 export default function AddPage() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
+  const { sym } = useCurrencySymbol();
 
   const [direction, setDirection] = useState<"expense" | "income">("expense");
   const [amount, setAmount] = useState("");
@@ -48,7 +50,7 @@ export default function AddPage() {
     const amt = Number(amount);
     if (!amt || Number.isNaN(amt) || amt <= 0) {
       setLoading(false);
-      return setMsg("Enter a valid amount (e.g., 250).");
+      return setMsg(`Enter a valid amount (e.g., ${sym}250).`);
     }
 
     const { error } = await supabase.from("transactions").insert({
@@ -82,18 +84,10 @@ export default function AddPage() {
           </div>
 
           <div className="row">
-            <button
-              className={`btn ${direction === "expense" ? "btnDanger" : ""}`}
-              onClick={() => setDirection("expense")}
-              type="button"
-            >
+            <button className={`btn ${direction === "expense" ? "btnDanger" : ""}`} onClick={() => setDirection("expense")} type="button">
               Expense
             </button>
-            <button
-              className={`btn ${direction === "income" ? "btnPrimary" : ""}`}
-              onClick={() => setDirection("income")}
-              type="button"
-            >
+            <button className={`btn ${direction === "income" ? "btnPrimary" : ""}`} onClick={() => setDirection("income")} type="button">
               Income
             </button>
           </div>
@@ -101,7 +95,7 @@ export default function AddPage() {
 
         <div className="sep" />
 
-        <label className="muted">Amount (INR)</label>
+        <label className="muted">Amount ({sym})</label>
         <input
           className="input money"
           value={amount}
@@ -114,29 +108,17 @@ export default function AddPage() {
         <div style={{ height: 12 }} />
 
         <label className="muted">Note</label>
-        <input
-          className="input"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="chai, rent, groceries…"
-          style={{ marginTop: 8 }}
-        />
+        <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="chai, rent, groceries…" style={{ marginTop: 8 }} />
 
         <div style={{ height: 12 }} />
 
-        <SearchSelect
-          label="Category"
-          placeholder="Select category…"
-          items={categories}
-          valueId={categoryId}
-          onChange={setCategoryId}
-        />
+        <SearchSelect label="Category" placeholder="Select category…" items={categories} valueId={categoryId} onChange={setCategoryId} />
 
         <div className="row" style={{ marginTop: 14 }}>
           <button className="btn btnPrimary" style={{ flex: 1 }} onClick={save} disabled={loading}>
             {loading ? "Saving…" : "Save"}
           </button>
-          <button className="btn" style={{ flex: 1 }} onClick={() => router.replace("/dashboard")} disabled={loading}>
+          <button className="btn" style={{ flex: 1 }} onClick={() => router.replace("/dashboard")} disabled={loading} type="button">
             Cancel
           </button>
         </div>

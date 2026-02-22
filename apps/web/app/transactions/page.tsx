@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { useCurrencySymbol } from "@/lib/useCurrency";
 
 type Txn = {
   id: string;
@@ -13,13 +14,10 @@ type Txn = {
   created_at: string;
 };
 
-function inr(n: number) {
-  return n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
-}
-
 export default function TransactionsPage() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
+  const { sym } = useCurrencySymbol();
 
   const [q, setQ] = useState("");
   const [items, setItems] = useState<Txn[]>([]);
@@ -49,10 +47,7 @@ export default function TransactionsPage() {
     setItems((data ?? []) as Txn[]);
   }
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -81,7 +76,7 @@ export default function TransactionsPage() {
 
     const amt = Number(editAmount);
     if (!amt || Number.isNaN(amt) || amt <= 0) {
-      setMsg("Enter a valid amount.");
+      setMsg(`Enter a valid amount (e.g. ${sym}250).`);
       return;
     }
 
@@ -130,12 +125,7 @@ export default function TransactionsPage() {
       </div>
 
       <div className="card cardPad" style={{ marginTop: 14 }}>
-        <input
-          className="input"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search: zomato / food / 450 / rent…"
-        />
+        <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search: rent / 450 / ${sym}…`} />
       </div>
 
       {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
@@ -154,7 +144,7 @@ export default function TransactionsPage() {
                     <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
                         <span className={`badge ${t.direction === "income" ? "badgeGood" : "badgeBad"}`}>
-                          {t.direction === "income" ? "IN" : "OUT"}
+                          {t.direction === "income" ? "↘ IN" : "↗ OUT"}
                         </span>
                         <div>
                           <div style={{ fontWeight: 650 }}>
@@ -168,11 +158,8 @@ export default function TransactionsPage() {
                       </div>
 
                       <div style={{ textAlign: "right" }}>
-                        <div
-                          className="money"
-                          style={{ fontWeight: 800, color: t.direction === "income" ? "var(--good)" : "var(--bad)" }}
-                        >
-                          {t.direction === "income" ? "+" : "-"}₹{inr(Number(t.amount ?? 0))}
+                        <div className="money" style={{ fontWeight: 800, color: t.direction === "income" ? "var(--good)" : "var(--bad)" }}>
+                          {t.direction === "income" ? "+" : "-"}{sym}{Number(t.amount ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}
                         </div>
 
                         <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
@@ -185,25 +172,17 @@ export default function TransactionsPage() {
                     <div className="col">
                       <div className="row" style={{ justifyContent: "space-between" }}>
                         <div className="row">
-                          <button
-                            className={`btn ${editDirection === "expense" ? "btnDanger" : ""}`}
-                            type="button"
-                            onClick={() => setEditDirection("expense")}
-                          >
+                          <button className={`btn ${editDirection === "expense" ? "btnDanger" : ""}`} type="button" onClick={() => setEditDirection("expense")}>
                             Expense
                           </button>
-                          <button
-                            className={`btn ${editDirection === "income" ? "btnPrimary" : ""}`}
-                            type="button"
-                            onClick={() => setEditDirection("income")}
-                          >
+                          <button className={`btn ${editDirection === "income" ? "btnPrimary" : ""}`} type="button" onClick={() => setEditDirection("income")}>
                             Income
                           </button>
                         </div>
                         <span className="badge">Editing</span>
                       </div>
 
-                      <label className="muted">Amount</label>
+                      <label className="muted">Amount ({sym})</label>
                       <input className="input money" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
 
                       <label className="muted">Note</label>
@@ -213,12 +192,8 @@ export default function TransactionsPage() {
                       <input className="input" value={editCategory} onChange={(e) => setEditCategory(e.target.value)} placeholder="Food, Travel…" />
 
                       <div className="row">
-                        <button className="btn btnPrimary" onClick={saveEdit} style={{ flex: 1 }}>
-                          Save
-                        </button>
-                        <button className="btn" onClick={() => setEditingId(null)} style={{ flex: 1 }}>
-                          Cancel
-                        </button>
+                        <button className="btn btnPrimary" onClick={saveEdit} style={{ flex: 1 }}>Save</button>
+                        <button className="btn" onClick={() => setEditingId(null)} style={{ flex: 1 }}>Cancel</button>
                       </div>
                     </div>
                   )}

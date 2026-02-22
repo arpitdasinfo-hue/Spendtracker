@@ -4,10 +4,12 @@ export default function MiniRing({
   value,
   total,
   title,
+  symbol = "₹",
 }: {
   value: number;
   total: number;
   title: string;
+  symbol?: string;
 }) {
   const pct = total > 0 ? Math.min(100, Math.max(0, (value / total) * 100)) : 0;
   const danger = pct >= 90;
@@ -18,7 +20,7 @@ export default function MiniRing({
         <div>
           <div style={{ fontWeight: 750 }}>{title}</div>
           <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
-            ₹{value.toLocaleString("en-IN", { maximumFractionDigits: 0 })} / ₹
+            {symbol}{value.toLocaleString("en-IN", { maximumFractionDigits: 0 })} / {symbol}
             {total.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
           </div>
         </div>

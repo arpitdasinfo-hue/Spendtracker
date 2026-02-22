@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { useCurrencySymbol } from "@/lib/useCurrency";
 import {
   ResponsiveContainer,
   PieChart,
@@ -27,32 +28,26 @@ type Txn = {
 function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
-
 function startOfWeek(d: Date) {
-  // Monday start (India-friendly)
   const day = (d.getDay() + 6) % 7; // Mon=0
   const s = startOfDay(d);
   s.setDate(s.getDate() - day);
   return s;
 }
-
 function startOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
-
 function sum(txns: Txn[], dir: "expense" | "income") {
   return txns
     .filter((t) => t.direction === dir)
     .reduce((s, t) => s + Number(t.amount ?? 0), 0);
 }
 
-function inr(n: number) {
-  return n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
-}
-
 export default function AnalysisPage() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
+  const { sym } = useCurrencySymbol();
+
   const [items, setItems] = useState<Txn[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -64,7 +59,6 @@ export default function AnalysisPage() {
         return;
       }
 
-      // fetch last ~120 days for analysis
       const since = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
 
       const { data, error } = await supabase
@@ -103,11 +97,10 @@ export default function AnalysisPage() {
     const wowExpense = sum(thisWeek, "expense") - sum(lastWeek, "expense");
     const momExpense = sum(thisMonth, "expense") - sum(lastMonth, "expense");
 
-    // Category spend (this month, expenses only)
     const catMap = new Map<string, number>();
     for (const t of thisMonth) {
       if (t.direction !== "expense") continue;
-      const key = t.category?.trim() || "Uncategorized";
+      const key = (t.category?.trim() || "Uncategorized");
       catMap.set(key, (catMap.get(key) ?? 0) + Number(t.amount ?? 0));
     }
     const categoryData = Array.from(catMap.entries())
@@ -115,7 +108,6 @@ export default function AnalysisPage() {
       .sort((a, b) => b.value - a.value)
       .slice(0, 10);
 
-    // Month trend: last 6 months
     const trend: { month: string; expense: number; income: number }[] = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -131,7 +123,6 @@ export default function AnalysisPage() {
       });
     }
 
-    // Weekly trend: last 8 weeks expense
     const weekly: { week: string; expense: number }[] = [];
     const w0 = startOfWeek(now);
     for (let i = 7; i >= 0; i--) {
@@ -160,6 +151,8 @@ export default function AnalysisPage() {
     };
   }, [items]);
 
+  const money = (n: number) => `${sym}${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+
   return (
     <main className="container">
       <div className="row" style={{ justifyContent: "space-between" }}>
@@ -178,17 +171,17 @@ export default function AnalysisPage() {
           <div className="sep" />
           <div className="row" style={{ justifyContent: "space-between" }}>
             <span className="muted">This week expense</span>
-            <span className="money" style={{ fontWeight: 800 }}>₹{inr(metrics.thisWeekExpense)}</span>
+            <span className="money" style={{ fontWeight: 800 }}>{money(metrics.thisWeekExpense)}</span>
           </div>
           <div className="row" style={{ justifyContent: "space-between", marginTop: 10 }}>
             <span className="muted">Last week expense</span>
-            <span className="money" style={{ fontWeight: 800, color: "var(--muted)" }}>₹{inr(metrics.lastWeekExpense)}</span>
+            <span className="money" style={{ fontWeight: 800, color: "var(--muted)" }}>{money(metrics.lastWeekExpense)}</span>
           </div>
           <div className="sep" />
           <div className="row" style={{ justifyContent: "space-between" }}>
             <span className="muted">Change</span>
             <span className={`badge ${metrics.wowExpense <= 0 ? "badgeGood" : "badgeBad"}`}>
-              {metrics.wowExpense >= 0 ? "+" : "-"}₹{inr(Math.abs(metrics.wowExpense))}
+              {metrics.wowExpense >= 0 ? "+" : "-"}{money(Math.abs(metrics.wowExpense))}
             </span>
           </div>
         </div>
@@ -198,17 +191,17 @@ export default function AnalysisPage() {
           <div className="sep" />
           <div className="row" style={{ justifyContent: "space-between" }}>
             <span className="muted">This month expense</span>
-            <span className="money" style={{ fontWeight: 800 }}>₹{inr(metrics.thisMonthExpense)}</span>
+            <span className="money" style={{ fontWeight: 800 }}>{money(metrics.thisMonthExpense)}</span>
           </div>
           <div className="row" style={{ justifyContent: "space-between", marginTop: 10 }}>
             <span className="muted">Last month expense</span>
-            <span className="money" style={{ fontWeight: 800, color: "var(--muted)" }}>₹{inr(metrics.lastMonthExpense)}</span>
+            <span className="money" style={{ fontWeight: 800, color: "var(--muted)" }}>{money(metrics.lastMonthExpense)}</span>
           </div>
           <div className="sep" />
           <div className="row" style={{ justifyContent: "space-between" }}>
             <span className="muted">Change</span>
             <span className={`badge ${metrics.momExpense <= 0 ? "badgeGood" : "badgeBad"}`}>
-              {metrics.momExpense >= 0 ? "+" : "-"}₹{inr(Math.abs(metrics.momExpense))}
+              {metrics.momExpense >= 0 ? "+" : "-"}{money(Math.abs(metrics.momExpense))}
             </span>
           </div>
         </div>
@@ -221,13 +214,13 @@ export default function AnalysisPage() {
         </div>
         <div className="sep" />
         {metrics.categoryData.length === 0 ? (
-          <p className="muted">No categorized expenses yet. Add a category while editing a transaction.</p>
+          <p className="muted">No categorized expenses yet.</p>
         ) : (
           <div style={{ width: "100%", height: 320 }}>
             <ResponsiveContainer>
               <PieChart>
                 <Pie data={metrics.categoryData} dataKey="value" nameKey="name" />
-                <Tooltip />
+                <Tooltip formatter={(value: any) => money(Number(value ?? 0))} />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -243,8 +236,8 @@ export default function AnalysisPage() {
               <BarChart data={metrics.trend}>
                 <CartesianGrid strokeOpacity={0.15} />
                 <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip />
+                <YAxis tickFormatter={(v) => `${sym}${v}`} />
+                <Tooltip formatter={(value: any) => money(Number(value ?? 0))} />
                 <Bar dataKey="expense" />
                 <Bar dataKey="income" />
               </BarChart>
@@ -260,8 +253,8 @@ export default function AnalysisPage() {
               <LineChart data={metrics.weekly}>
                 <CartesianGrid strokeOpacity={0.15} />
                 <XAxis dataKey="week" />
-                <YAxis />
-                <Tooltip />
+                <YAxis tickFormatter={(v) => `${sym}${v}`} />
+                <Tooltip formatter={(value: any) => money(Number(value ?? 0))} />
                 <Line type="monotone" dataKey="expense" dot={false} />
               </LineChart>
             </ResponsiveContainer>

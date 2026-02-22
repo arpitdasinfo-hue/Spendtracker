@@ -4,10 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import SearchSelect, { SearchItem } from "@/components/SearchSelect";
+import { useCurrencySymbol } from "@/lib/useCurrency";
 
 export default function QuickAddDrawer() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
+  const { sym } = useCurrencySymbol();
 
   const [open, setOpen] = useState(false);
 
@@ -36,6 +38,7 @@ export default function QuickAddDrawer() {
         setCategories((data ?? []).map((c: any) => ({ id: c.id, label: c.name })));
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const hint = useMemo(() => (open ? "Fast entry: choose category + hit save." : "Tap to quick add"), [open]);
@@ -54,7 +57,7 @@ export default function QuickAddDrawer() {
     const amt = Number(amount);
     if (!amt || Number.isNaN(amt) || amt <= 0) {
       setLoading(false);
-      setMsg("Enter a valid amount (e.g. 250).");
+      setMsg(`Enter a valid amount (e.g. ${sym}250).`);
       return;
     }
 
@@ -105,24 +108,16 @@ export default function QuickAddDrawer() {
             </div>
 
             <div className="row">
-              <button
-                className={`btn ${direction === "expense" ? "btnDanger" : ""}`}
-                type="button"
-                onClick={() => setDirection("expense")}
-              >
+              <button className={`btn ${direction === "expense" ? "btnDanger" : ""}`} type="button" onClick={() => setDirection("expense")}>
                 Expense
               </button>
-              <button
-                className={`btn ${direction === "income" ? "btnPrimary" : ""}`}
-                type="button"
-                onClick={() => setDirection("income")}
-              >
+              <button className={`btn ${direction === "income" ? "btnPrimary" : ""}`} type="button" onClick={() => setDirection("income")}>
                 Income
               </button>
             </div>
           </div>
 
-          <label className="muted">Amount (INR)</label>
+          <label className="muted">Amount ({sym})</label>
           <input className="input money" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="250" />
 
           <label className="muted">Note</label>

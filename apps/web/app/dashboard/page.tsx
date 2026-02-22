@@ -125,7 +125,7 @@ export default async function DashboardPage() {
             <div className="sep" />
 
             {monthlyBudget > 0 ? (
-              <ProgressRing value={expense} total={monthlyBudget} label="Budget used (this month)" />
+              <ProgressRing value={expense} total={monthlyBudget} label="Budget used (this month)" symbol={sym} />
             ) : (
               <div className="toast" style={{ marginTop: 10 }}>
                 <span className="muted">Set your budget in </span>

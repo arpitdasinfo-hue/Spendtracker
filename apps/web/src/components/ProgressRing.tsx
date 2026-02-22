@@ -4,10 +4,12 @@ export default function ProgressRing({
   value,
   total,
   label,
+  symbol = "₹",
 }: {
   value: number;
   total: number;
   label?: string;
+  symbol?: string;
 }) {
   const pct = total > 0 ? Math.min(100, Math.max(0, (value / total) * 100)) : 0;
 
@@ -49,11 +51,11 @@ export default function ProgressRing({
           {label ?? "Monthly budget used"}
         </div>
         <div className="money" style={{ fontWeight: 850, marginTop: 6 }}>
-          ₹{value.toLocaleString("en-IN", { maximumFractionDigits: 0 })} / ₹
+          {symbol}{value.toLocaleString("en-IN", { maximumFractionDigits: 0 })} / {symbol}
           {total.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
         </div>
         <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
-          Remaining: ₹
+          Remaining: {symbol}
           {Math.max(0, total - value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
         </div>
       </div>

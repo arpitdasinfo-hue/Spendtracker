@@ -5,30 +5,35 @@ import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import ProgressRing from "@/components/ProgressRing";
 import MiniRing from "@/components/MiniRing";
+import { useCurrencySymbol } from "@/lib/useCurrency";
 
-type CatBudget = {
+type CatBudgetRow = {
   id: string;
-  category: string;
+  category_id: string;
   monthly_budget: number;
+  categories?: { name: string } | null;
 };
 
 type Txn = {
   direction: "expense" | "income";
   amount: number | null;
-  category: string | null;
+  category_id: string | null;
   created_at: string;
 };
 
 export default function BudgetPage() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
+  const { sym } = useCurrencySymbol();
 
   const [monthlyBudget, setMonthlyBudget] = useState<string>("");
   const [savedMonthlyBudget, setSavedMonthlyBudget] = useState<number>(0);
 
-  const [cats, setCats] = useState<CatBudget[]>([]);
-  const [newCat, setNewCat] = useState("");
-  const [newCatBudget, setNewCatBudget] = useState("");
+  const [cats, setCats] = useState<{ id: string; name: string }[]>([]);
+  const [catBudgets, setCatBudgets] = useState<CatBudgetRow[]>([]);
+
+  const [newCategoryId, setNewCategoryId] = useState<string>("");
+  const [newCatBudget, setNewCatBudget] = useState<string>("");
 
   const [txns, setTxns] = useState<Txn[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
@@ -44,15 +49,19 @@ export default function BudgetPage() {
       .reduce((s, t) => s + Number(t.amount ?? 0), 0);
   }, [txns]);
 
-  const categorySpendMap = useMemo(() => {
+  const categorySpend = useMemo(() => {
     const m = new Map<string, number>();
     for (const t of txns) {
       if (t.direction !== "expense") continue;
-      const key = (t.category?.trim() || "Uncategorized");
+      const key = t.category_id ?? "__uncat__";
       m.set(key, (m.get(key) ?? 0) + Number(t.amount ?? 0));
     }
     return m;
   }, [txns]);
+
+  const allocated = useMemo(() => {
+    return (catBudgets ?? []).reduce((s, r) => s + Number(r.monthly_budget ?? 0), 0);
+  }, [catBudgets]);
 
   useEffect(() => {
     (async () => {
@@ -64,26 +73,31 @@ export default function BudgetPage() {
         .select("monthly_budget")
         .eq("user_id", u.user.id)
         .maybeSingle();
-
       if (bErr) setMsg(bErr.message);
+
       const mb = Number(b?.monthly_budget ?? 0);
       setSavedMonthlyBudget(mb);
       setMonthlyBudget(mb ? String(mb) : "");
 
+      const { data: cdata } = await supabase
+        .from("categories")
+        .select("id, name, is_active")
+        .eq("is_active", true)
+        .order("name", { ascending: true });
+      setCats((cdata ?? []).map((c: any) => ({ id: c.id, name: c.name })));
+
       const { data: cb, error: cbErr } = await supabase
         .from("category_budgets")
-        .select("id, category, monthly_budget")
-        .order("category", { ascending: true });
-
+        .select("id, category_id, monthly_budget, categories(name)")
+        .order("updated_at", { ascending: false });
       if (cbErr) setMsg(cbErr.message);
-      setCats((cb ?? []) as CatBudget[]);
+      setCatBudgets((cb ?? []) as any);
 
       const { data: t, error: tErr } = await supabase
         .from("transactions")
-        .select("direction, amount, category, created_at")
+        .select("direction, amount, category_id, created_at")
         .gte("created_at", monthStartISO)
         .order("created_at", { ascending: false });
-
       if (tErr) setMsg(tErr.message);
       setTxns((t ?? []) as Txn[]);
     })();
@@ -97,6 +111,8 @@ export default function BudgetPage() {
     const n = Number(monthlyBudget);
     if (Number.isNaN(n) || n < 0) return setMsg("Enter a valid monthly budget.");
 
+    if (allocated > n) return setMsg(`Allocated category budgets exceed monthly budget (${sym}${allocated.toFixed(0)} > ${sym}${n.toFixed(0)}).`);
+
     const { error } = await supabase.from("budgets").upsert({
       user_id: u.user.id,
       monthly_budget: n,
@@ -109,20 +125,24 @@ export default function BudgetPage() {
     setTimeout(() => setMsg(null), 900);
   }
 
-  async function addCategoryBudget() {
+  async function upsertCategoryBudget() {
     setMsg(null);
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return router.replace("/login");
 
-    const cat = newCat.trim();
+    if (!newCategoryId) return setMsg("Choose a category.");
     const n = Number(newCatBudget);
-
-    if (!cat) return setMsg("Category name required.");
     if (Number.isNaN(n) || n <= 0) return setMsg("Enter a valid category budget.");
+
+    const existing = catBudgets.find((x) => x.category_id === newCategoryId);
+    const nextAllocated = allocated - Number(existing?.monthly_budget ?? 0) + n;
+    if (savedMonthlyBudget > 0 && nextAllocated > savedMonthlyBudget) {
+      return setMsg(`Total category budgets would exceed monthly budget (${sym}${nextAllocated.toFixed(0)} > ${sym}${savedMonthlyBudget.toFixed(0)}).`);
+    }
 
     const { error } = await supabase.from("category_budgets").upsert({
       user_id: u.user.id,
-      category: cat,
+      category_id: newCategoryId,
       monthly_budget: n,
       updated_at: new Date().toISOString(),
     });
@@ -131,11 +151,11 @@ export default function BudgetPage() {
 
     const { data: cb } = await supabase
       .from("category_budgets")
-      .select("id, category, monthly_budget")
-      .order("category", { ascending: true });
+      .select("id, category_id, monthly_budget, categories(name)")
+      .order("updated_at", { ascending: false });
+    setCatBudgets((cb ?? []) as any);
 
-    setCats((cb ?? []) as CatBudget[]);
-    setNewCat("");
+    setNewCategoryId("");
     setNewCatBudget("");
     setMsg("Category budget saved ✅");
     setTimeout(() => setMsg(null), 900);
@@ -149,28 +169,31 @@ export default function BudgetPage() {
     const { error } = await supabase.from("category_budgets").delete().eq("id", id);
     if (error) return setMsg(error.message);
 
-    setCats((prev) => prev.filter((c) => c.id !== id));
+    setCatBudgets((prev) => prev.filter((c) => c.id !== id));
   }
 
   return (
     <main className="container">
       <h1 className="h1">Budget</h1>
-      <p className="sub">Set overall monthly budget + category budgets. Track progress instantly.</p>
+      <p className="sub">Monthly + category budgets. Totals cannot exceed monthly.</p>
 
       {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
 
       <div className="card cardPad" style={{ marginTop: 14 }}>
         {savedMonthlyBudget > 0 ? (
-          <ProgressRing value={spentThisMonth} total={savedMonthlyBudget} />
+          <ProgressRing value={spentThisMonth} total={savedMonthlyBudget} symbol={sym} />
         ) : (
-          <div className="toast">
-            <span className="muted">Set a monthly budget to unlock the progress ring.</span>
-          </div>
+          <div className="toast"><span className="muted">Set a monthly budget to unlock the ring.</span></div>
         )}
 
         <div className="sep" />
 
-        <label className="muted">Monthly budget (INR)</label>
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <span className="muted">Allocated to categories</span>
+          <span className="money" style={{ fontWeight: 800 }}>{sym}{allocated.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</span>
+        </div>
+
+        <label className="muted" style={{ marginTop: 12, display: "block" }}>Monthly budget ({sym})</label>
         <input
           className="input money"
           value={monthlyBudget}
@@ -184,7 +207,7 @@ export default function BudgetPage() {
           <button className="btn btnPrimary" style={{ flex: 1 }} onClick={saveMonthly}>
             Save monthly budget
           </button>
-          <button className="btn" style={{ flex: 1 }} onClick={() => router.push("/dashboard")}>
+          <button className="btn" style={{ flex: 1 }} onClick={() => router.push("/dashboard")} type="button">
             Back
           </button>
         </div>
@@ -198,27 +221,32 @@ export default function BudgetPage() {
 
         <div className="sep" />
 
-        <div className="grid2" style={{ gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <input className="input" value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="Food" />
-          <input className="input money" value={newCatBudget} onChange={(e) => setNewCatBudget(e.target.value)} placeholder="6000" inputMode="decimal" />
-        </div>
+        <label className="muted">Category</label>
+        <select className="input" value={newCategoryId} onChange={(e) => setNewCategoryId(e.target.value)} style={{ marginTop: 8 }}>
+          <option value="">Select…</option>
+          {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
 
-        <button className="btn btnPrimary" style={{ width: "100%", marginTop: 12 }} onClick={addCategoryBudget}>
+        <label className="muted" style={{ marginTop: 10, display: "block" }}>Category budget ({sym})</label>
+        <input className="input money" value={newCatBudget} onChange={(e) => setNewCatBudget(e.target.value)} placeholder="6000" inputMode="decimal" style={{ marginTop: 8 }} />
+
+        <button className="btn btnPrimary" style={{ width: "100%", marginTop: 12 }} onClick={upsertCategoryBudget}>
           Add / Update Category Budget
         </button>
 
         <div className="sep" />
 
-        {cats.length === 0 ? (
-          <p className="muted">No category budgets yet. Add “Food 6000” to start.</p>
+        {catBudgets.length === 0 ? (
+          <p className="muted">No category budgets yet.</p>
         ) : (
           <div className="col" style={{ gap: 10 }}>
-            {cats.map((c) => {
-              const spent = categorySpendMap.get(c.category) ?? 0;
+            {catBudgets.map((c) => {
+              const title = c.categories?.name ?? "Category";
+              const spent = categorySpend.get(c.category_id) ?? 0;
               return (
                 <div key={c.id} className="row" style={{ gap: 10, alignItems: "stretch" }}>
                   <div style={{ flex: 1 }}>
-                    <MiniRing title={c.category} value={spent} total={Number(c.monthly_budget ?? 0)} />
+                    <MiniRing title={title} value={spent} total={Number(c.monthly_budget ?? 0)} symbol={sym} />
                   </div>
                   <button className="btn btnDanger" style={{ alignSelf: "center" }} onClick={() => deleteCategoryBudget(c.id)}>
                     Delete
