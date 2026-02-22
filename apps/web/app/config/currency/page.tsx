@@ -3,91 +3,101 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import {
-  CURRENCIES,
-  currencyLabel,
-  currencySymbol,
-  isCurrencyCode,
-  type CurrencyCode,
-} from "@/lib/currency";
 
-const OPTIONS: CurrencyCode[] = CURRENCIES.map((c) => c.code);
+const CURRENCIES = [
+  { code: "INR", symbol: "₹" },
+  { code: "USD", symbol: "$" },
+  { code: "EUR", symbol: "€" },
+  { code: "GBP", symbol: "£" },
+  { code: "AED", symbol: "د.إ" },
+] as const;
 
 export default function CurrencyConfigPage() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
 
-  const [current, setCurrent] = useState<CurrencyCode>("INR");
-  const [msg, setMsg] = useState<string | null>(null);
+  const [currency, setCurrency] = useState<string>("INR");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) return router.replace("/login");
 
-      const { data, error } = await supabase
+      const { data: prof } = await supabase
         .from("profiles")
         .select("currency_code")
         .eq("id", u.user.id)
         .maybeSingle();
 
-      if (!error && isCurrencyCode(data?.currency_code)) setCurrent(data.currency_code);
+      if (prof?.currency_code) setCurrency(prof.currency_code);
     })();
-  }, [router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  async function setCurrency(code: CurrencyCode) {
-    setMsg(null);
+  async function choose(code: string) {
+    setLoading(true);
     const { data: u } = await supabase.auth.getUser();
-    if (!u.user) return router.replace("/login");
+    if (!u.user) {
+      setLoading(false);
+      return router.replace("/login");
+    }
 
-    const { error } = await supabase
-      .from("profiles")
-      .update({ currency_code: code })
-      .eq("id", u.user.id);
+    setCurrency(code);
 
-    if (error) return setMsg(error.message);
+    // Persist silently (no banner)
+    await supabase.from("profiles").update({ currency_code: code }).eq("id", u.user.id);
 
-    setCurrent(code);
-    setMsg("Saved ✅");
-    setTimeout(() => setMsg(null), 900);
+    setLoading(false);
+    router.refresh(); // ensures symbol updates everywhere
   }
 
   return (
     <main className="container">
-      <h1 className="h1">Config · Currency</h1>
-      <p className="sub">Choose your display currency (code + symbol).</p>
-
-      {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <div>
+          <h1 className="h1">Config · Currency</h1>
+          <p className="sub">Choose your display currency (code + symbol).</p>
+        </div>
+        <span className="badge">Profile</span>
+      </div>
 
       <div className="card cardPad" style={{ marginTop: 14 }}>
         <div className="pill">
           <span>💱</span>
           <span className="muted">Current</span>
-          <span className="kbd">{currencySymbol(current)}</span>
+          <span className="kbd">{currency}</span>
         </div>
 
         <div className="sep" />
 
         <div className="grid2" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
-          {OPTIONS.map((c) => (
-            <button
-              key={c}
-              className={`btn ${current === c ? "btnPrimary" : ""}`}
-              onClick={() => setCurrency(c)}
-              type="button"
-              style={{ padding: 16, fontSize: 18, fontWeight: 850 }}
-              title={currencyLabel(c)}
-              aria-label={currencyLabel(c)}
-            >
-              <span>{currencySymbol(c)}</span>
-              <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.85 }}>{c}</span>
-            </button>
-          ))}
+          {CURRENCIES.map((c) => {
+            const active = currency === c.code;
+            return (
+              <button
+                key={c.code}
+                className={`btn ${active ? "btnPrimary" : ""}`}
+                onClick={() => choose(c.code)}
+                disabled={loading}
+                type="button"
+                style={{
+                  justifyContent: "center",
+                  padding: "14px 12px",
+                  borderRadius: 16,
+                  fontWeight: 800,
+                }}
+              >
+                <span style={{ marginRight: 10 }}>{c.symbol}</span>
+                {c.code}
+              </button>
+            );
+          })}
         </div>
 
-        <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>
-          This updates the symbol across the app.
-        </p>
+        <div className="faint" style={{ marginTop: 12, fontSize: 12 }}>
+          Selecting a currency updates symbols across the app.
+        </div>
       </div>
     </main>
   );
