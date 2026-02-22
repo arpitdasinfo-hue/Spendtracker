@@ -42,16 +42,23 @@ function startOfMonthISO(d: Date) {
   return s.toISOString();
 }
 
+function startOfDayISO(dateYYYYMMDD: string) {
+  const [y, m, dd] = dateYYYYMMDD.split("-").map(Number);
+  const s = new Date(y, m - 1, dd, 0, 0, 0, 0);
+  return s.toISOString();
+}
+
 function endOfDayISO(dateYYYYMMDD: string) {
   const [y, m, dd] = dateYYYYMMDD.split("-").map(Number);
   const e = new Date(y, m - 1, dd, 23, 59, 59, 999);
   return e.toISOString();
 }
 
-function startOfDayISO(dateYYYYMMDD: string) {
-  const [y, m, dd] = dateYYYYMMDD.split("-").map(Number);
-  const s = new Date(y, m - 1, dd, 0, 0, 0, 0);
-  return s.toISOString();
+function daysAgoISO(n: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
 }
 
 const DEFAULT_FILTERS: TxnFilters = {
@@ -70,6 +77,8 @@ const DEFAULT_FILTERS: TxnFilters = {
   dateTo: "",
 };
 
+const PAGE_SIZE = 50;
+
 export default function TransactionsPage() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
@@ -83,46 +92,28 @@ export default function TransactionsPage() {
   const [openFilter, setOpenFilter] = useState(false);
   const [filters, setFilters] = useState<TxnFilters>({ ...DEFAULT_FILTERS });
 
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDirection, setEditDirection] = useState<"expense" | "income">("expense");
-  const [editAmount, setEditAmount] = useState<string>("");
-  const [editNote, setEditNote] = useState<string>("");
+  // Pagination state
+  const [totalCount, setTotalCount] = useState<number>(0);
+  const [page, setPage] = useState<number>(0);
+  const [loadingPage, setLoadingPage] = useState<boolean>(false);
 
   const activeFilterCount = useMemo(() => countActiveFilters(filters), [filters]);
 
-  async function load() {
-    setMsg(null);
-    const { data: u } = await supabase.auth.getUser();
-    if (!u.user) return router.replace("/login");
+  // Quick date range chips (main browsing)
+  const [quickRange, setQuickRange] = useState<"all" | "7d" | "30d" | "90d" | "custom">("all");
 
-    // fetch payment methods (for displaying name + channel, and channel filtering)
-    const { data: m, error: mErr } = await supabase
-      .from("payment_methods")
-      .select("id, name, channel, payment_type, is_active")
-      .order("created_at", { ascending: false });
+  function resetPagination() {
+    setItems([]);
+    setPage(0);
+  }
 
-    if (mErr) setMsg(mErr.message);
-
-    const map = new Map<string, Method>();
-    (m ?? []).forEach((x: any) => map.set(x.id, x));
-    setMethods(map);
-
-    // Build server-side filtered query
-    let qy = supabase
-      .from("transactions")
-      .select("id, direction, amount, note, created_at, payment_method_id, tag")
-      .order("created_at", { ascending: false })
-      .limit(500);
+  function applyTxnFilters(qy: any, methodsList: any[]) {
 
     // Direction
-    if (filters.direction !== "any") {
-      qy = qy.eq("direction", filters.direction);
-    }
+    if (filters.direction !== "any") qy = qy.eq("direction", filters.direction);
 
-    // Tags (multi)
-    if (filters.tags.length) {
-      qy = qy.in("tag", filters.tags);
-    }
+    // Tags
+    if (filters.tags.length) qy = qy.in("tag", filters.tags);
 
     // Amount
     const toNum = (s: string) => {
@@ -143,40 +134,154 @@ export default function TransactionsPage() {
       if (b !== null) qy = qy.lte("amount", b);
     }
 
-    // Date range
+    // Date
     const now = new Date();
-    if (filters.dateMode === "this_week") {
-      qy = qy.gte("created_at", startOfWeekISO(now));
-    } else if (filters.dateMode === "this_month") {
-      qy = qy.gte("created_at", startOfMonthISO(now));
-    } else if (filters.dateMode === "custom") {
+    if (filters.dateMode === "this_week") qy = qy.gte("created_at", startOfWeekISO(now));
+    else if (filters.dateMode === "this_month") qy = qy.gte("created_at", startOfMonthISO(now));
+    else if (filters.dateMode === "custom") {
       if (filters.dateFrom) qy = qy.gte("created_at", startOfDayISO(filters.dateFrom));
       if (filters.dateTo) qy = qy.lte("created_at", endOfDayISO(filters.dateTo));
     }
 
-    // Channel (requires mapping channels -> payment_method_ids)
+    // Channel (map channels -> payment_method_ids)
     if (filters.channels.length) {
-      const ids = (m ?? [])
+      const ids = (methodsList ?? [])
         .filter((x: any) => filters.channels.includes(x.channel))
         .map((x: any) => x.id);
 
-      // If user chose channels but no matching methods exist, return empty
-      if (ids.length === 0) {
-        setItems([]);
-        return;
-      }
-      qy = qy.in("payment_method_id", ids);
+      // If user chose channels but none exist, force empty by impossible filter
+      if (ids.length === 0) qy = qy.eq("id", "__none__");
+      else qy = qy.in("payment_method_id", ids);
     }
 
-    const { data, error } = await qy;
+    return qy;
+  }
+
+  async function loadMethods() {
+    const { data: m, error: mErr } = await supabase
+      .from("payment_methods")
+      .select("id, name, channel, payment_type, is_active")
+      .order("created_at", { ascending: false });
+
+    if (mErr) setMsg(mErr.message);
+
+    const map = new Map<string, Method>();
+    (m ?? []).forEach((x: any) => map.set(x.id, x));
+    setMethods(map);
+
+    return m ?? [];
+  }
+
+  async function loadCountAndFirstPage() {
+    setMsg(null);
+    setLoadingPage(true);
+
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) {
+      setLoadingPage(false);
+      return router.replace("/login");
+    }
+
+    const methodsList = await loadMethods();
+
+    // Count query (head)
+    const { count, error: cErr } = await applyTxnFilters(
+      supabase.from("transactions").select("id", { count: "exact", head: true }),
+      methodsList
+    );
+
+    if (cErr) setMsg(cErr.message);
+    setTotalCount(count ?? 0);
+
+    // First page query
+    const { data, error } = await applyTxnFilters(
+      supabase
+        .from("transactions")
+        .select("id, direction, amount, note, created_at, payment_method_id, tag")
+        .order("created_at", { ascending: false }),
+      methodsList
+    )
+      .range(0, PAGE_SIZE - 1);
 
     if (error) setMsg(error.message);
     setItems((data ?? []) as Txn[]);
+    setPage(1);
+    setLoadingPage(false);
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  async function loadMore() {
+    if (loadingPage) return;
+    setLoadingPage(true);
 
-  // Apply search locally (fast + flexible)
+    const methodsList = await loadMethods();
+
+    const from = page * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
+    const { data, error } = await applyTxnFilters(
+      supabase
+        .from("transactions")
+        .select("id, direction, amount, note, created_at, payment_method_id, tag")
+        .order("created_at", { ascending: false }),
+      methodsList
+    )
+      .range(from, to);
+
+    if (error) setMsg(error.message);
+
+    setItems((prev) => [...prev, ...((data ?? []) as Txn[])]);
+    setPage((p) => p + 1);
+    setLoadingPage(false);
+  }
+
+  // Initial load
+  useEffect(() => {
+    loadCountAndFirstPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Apply quick date ranges (main browsing)
+  useEffect(() => {
+    // Update filters.dateMode based on quickRange (without opening modal)
+    if (quickRange === "all") {
+      setFilters((f) => ({ ...f, dateMode: "any", dateFrom: "", dateTo: "" }));
+    } else if (quickRange === "7d") {
+      // use custom with ISO boundaries via created_at >= (today-7)
+      // We store in dateMode "custom" using dateFrom only for UI consistency
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      setFilters((f) => ({ ...f, dateMode: "custom", dateFrom: `${yyyy}-${mm}-${dd}`, dateTo: "" }));
+    } else if (quickRange === "30d") {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      setFilters((f) => ({ ...f, dateMode: "custom", dateFrom: `${yyyy}-${mm}-${dd}`, dateTo: "" }));
+    } else if (quickRange === "90d") {
+      const d = new Date();
+      d.setDate(d.getDate() - 90);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      setFilters((f) => ({ ...f, dateMode: "custom", dateFrom: `${yyyy}-${mm}-${dd}`, dateTo: "" }));
+    } else {
+      // custom = open modal for user
+      setOpenFilter(true);
+    }
+
+    // reset pagination + reload when quick range changes (except opening modal)
+    if (quickRange !== "custom") {
+      resetPagination();
+      loadCountAndFirstPage();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickRange]);
+
+  // Search stays local (works across loaded pages)
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return items;
@@ -193,60 +298,8 @@ export default function TransactionsPage() {
     });
   }, [q, items, methods]);
 
-  function startEdit(t: Txn) {
-    setEditingId(t.id);
-    setEditDirection(t.direction);
-    setEditAmount(String(t.amount ?? ""));
-    setEditNote(t.note ?? "");
-  }
-
-  async function saveEdit() {
-    if (!editingId) return;
-    setMsg(null);
-
-    const amt = Number(editAmount);
-    if (!amt || Number.isNaN(amt) || amt <= 0) {
-      setMsg(`Enter a valid amount (e.g. ${sym}250).`);
-      return;
-    }
-
-    const { error } = await supabase
-      .from("transactions")
-      .update({
-        direction: editDirection,
-        amount: amt,
-        note: (editNote || (editDirection === "expense" ? "expense" : "income")).slice(0, 80),
-      })
-      .eq("id", editingId);
-
-    if (error) {
-      setMsg(error.message);
-      return;
-    }
-
-    setEditingId(null);
-    await load();
-  }
-
-  async function deleteTxn(id: string) {
-    const ok = confirm("Delete this transaction?");
-    if (!ok) return;
-
-    setMsg(null);
-    const { error } = await supabase.from("transactions").delete().eq("id", id);
-    if (error) {
-      setMsg(error.message);
-      return;
-    }
-    await load();
-  }
-
-  function clearFilters() {
-    setFilters({ ...DEFAULT_FILTERS });
-  }
-
   async function applyFilters() {
-    // light validation for amount + custom dates
+    // validate amount + date
     if (filters.amountMode === "between") {
       if (!filters.amountMin || !filters.amountMax) {
         setMsg("Amount between requires both Min and Max.");
@@ -261,8 +314,20 @@ export default function TransactionsPage() {
     }
 
     setOpenFilter(false);
-    await load();
+    resetPagination();
+    await loadCountAndFirstPage();
   }
+
+  function clearFiltersAndReload() {
+    setFilters({ ...DEFAULT_FILTERS });
+    setQuickRange("all");
+    resetPagination();
+    loadCountAndFirstPage();
+  }
+
+  const showPagination = totalCount > PAGE_SIZE;
+  const loadedCount = items.length;
+  const hasMore = loadedCount < totalCount;
 
   return (
     <main className="container">
@@ -271,7 +336,7 @@ export default function TransactionsPage() {
         onClose={() => setOpenFilter(false)}
         filters={filters}
         onChange={setFilters}
-        onClear={clearFilters}
+        onClear={() => setFilters({ ...DEFAULT_FILTERS })}
         onApply={applyFilters}
         currencySymbol={sym}
       />
@@ -279,20 +344,40 @@ export default function TransactionsPage() {
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
           <h1 className="h1">Transactions</h1>
-          <p className="sub">Search by note, amount, payment method, or tag. Filter via popup.</p>
+          <p className="sub">Browse by date-range + filters. Pagination appears only when needed.</p>
         </div>
-        <button className="btn btnPrimary" onClick={() => router.push("/add")}> 
+        <button className="btn btnPrimary" onClick={() => router.push("/add")}>
           ＋ Add
         </button>
       </div>
 
-      <div className="row" style={{ marginTop: 14, gap: 10 }}>
+      {/* Quick range chips (main browsing) */}
+      <div className="row" style={{ marginTop: 10, flexWrap: "wrap" }}>
+        {[
+          { id: "all", label: "All" },
+          { id: "7d", label: "7D" },
+          { id: "30d", label: "30D" },
+          { id: "90d", label: "90D" },
+          { id: "custom", label: "Custom" },
+        ].map((x) => (
+          <button
+            key={x.id}
+            type="button"
+            className={`btn ${quickRange === (x.id as any) ? "btnPrimary" : ""}`}
+            onClick={() => setQuickRange(x.id as any)}
+          >
+            {x.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="row" style={{ marginTop: 12, gap: 10 }}>
         <div className="card" style={{ padding: 12, borderRadius: 18, flex: 1 }}>
           <input
             className="input"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder={`Search: rent / ${sym}450 / UPI / Official…`}
+            placeholder={`Search within loaded: rent / ${sym}450 / UPI / Official…`}
           />
         </div>
 
@@ -300,8 +385,8 @@ export default function TransactionsPage() {
           Filter {activeFilterCount ? `(${activeFilterCount})` : ""}
         </button>
 
-        {activeFilterCount ? (
-          <button className="btn" onClick={async () => { clearFilters(); await load(); }} type="button">
+        {(activeFilterCount || quickRange !== "all") ? (
+          <button className="btn" onClick={clearFiltersAndReload} type="button">
             Clear
           </button>
         ) : null}
@@ -310,80 +395,70 @@ export default function TransactionsPage() {
       {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
 
       <div className="card cardPad" style={{ marginTop: 12 }}>
-        {filtered.length === 0 ? (
+        {loadingPage && items.length === 0 ? (
+          <p className="muted">Loading…</p>
+        ) : filtered.length === 0 ? (
           <p className="muted">No transactions found.</p>
         ) : (
           <div className="col" style={{ gap: 10 }}>
             {filtered.map((t) => {
-              const isEditing = editingId === t.id;
               const pm = t.payment_method_id ? methods.get(t.payment_method_id) : null;
 
               return (
                 <div key={t.id} className="card" style={{ padding: 12, borderRadius: 18 }}>
-                  {!isEditing ? (
-                    <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-                      <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
-                        <span className={`badge ${t.direction === "income" ? "badgeGood" : "badgeBad"}`}>
-                          {t.direction === "income" ? "↘ IN" : "↗ OUT"}
-                        </span>
+                  <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
+                      <span className={`badge ${t.direction === "income" ? "badgeGood" : "badgeBad"}`}>
+                        {t.direction === "income" ? "↘ IN" : "↗ OUT"}
+                      </span>
 
-                        <div>
-                          <div style={{ fontWeight: 650 }}>{t.note}</div>
+                      <div>
+                        <div style={{ fontWeight: 650 }}>{t.note}</div>
 
-                          <div className="row" style={{ gap: 8, marginTop: 6, flexWrap: "wrap" }}>
-                            <span className="badge">{tagLabel(t.tag)}</span>
-                            {pm ? <span className="badge">{pm.name}</span> : <span className="badge">No method</span>}
-                            {pm?.channel ? <span className="badge">{pm.channel.toUpperCase()}</span> : null}
-                          </div>
-
-                          <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
-                            {new Date(t.created_at).toLocaleString("en-IN")}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{ textAlign: "right" }}>
-                        <div className="money" style={{ fontWeight: 800, color: t.direction === "income" ? "var(--good)" : "var(--bad)" }}>
-                          {t.direction === "income" ? "+" : "-"}{sym}{Number(t.amount ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                        <div className="row" style={{ gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                          <span className="badge">{tagLabel(t.tag)}</span>
+                          {pm ? <span className="badge">{pm.name}</span> : <span className="badge">No method</span>}
+                          {pm?.channel ? <span className="badge">{pm.channel.toUpperCase()}</span> : null}
                         </div>
 
-                        <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
-                          <button className="btn" onClick={() => startEdit(t)}>Edit</button>
-                          <button className="btn btnDanger" onClick={() => deleteTxn(t.id)}>Delete</button>
+                        <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
+                          {new Date(t.created_at).toLocaleString("en-IN")}
                         </div>
                       </div>
                     </div>
-                  ) : (
-                    <div className="col">
-                      <div className="row" style={{ justifyContent: "space-between" }}>
-                        <div className="row">
-                          <button className={`btn ${editDirection === "expense" ? "btnDanger" : ""}`} type="button" onClick={() => setEditDirection("expense")}>
-                            Expense
-                          </button>
-                          <button className={`btn ${editDirection === "income" ? "btnPrimary" : ""}`} type="button" onClick={() => setEditDirection("income")}>
-                            Income
-                          </button>
-                        </div>
-                        <span className="badge">Editing</span>
-                      </div>
 
-                      <label className="muted">Amount ({sym})</label>
-                      <input className="input money" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
-
-                      <label className="muted">Note</label>
-                      <input className="input" value={editNote} onChange={(e) => setEditNote(e.target.value)} />
-
-                      <div className="row">
-                        <button className="btn btnPrimary" onClick={saveEdit} style={{ flex: 1 }}>Save</button>
-                        <button className="btn" onClick={() => setEditingId(null)} style={{ flex: 1 }}>Cancel</button>
+                    <div style={{ textAlign: "right" }}>
+                      <div className="money" style={{ fontWeight: 800, color: t.direction === "income" ? "var(--good)" : "var(--bad)" }}>
+                        {t.direction === "income" ? "+" : "-"}{sym}{Number(t.amount ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}
                       </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               );
             })}
           </div>
         )}
+
+        {/* Pagination footer only when total > 50 */}
+        {showPagination ? (
+          <div className="sep" />
+        ) : null}
+
+        {showPagination ? (
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <span className="faint" style={{ fontSize: 12 }}>
+              Showing {Math.min(loadedCount, totalCount)} of {totalCount}
+            </span>
+
+            {hasMore ? (
+              <button className="btn btnPrimary" onClick={loadMore} type="button" disabled={loadingPage}>
+                {loadingPage ? "Loading…" : "Load more"}
+              </button>
+            ) : (
+              <span className="badge">End</span>
+            )}
+          </div>
+        ) : null}
       </div>
     </main>
   );
