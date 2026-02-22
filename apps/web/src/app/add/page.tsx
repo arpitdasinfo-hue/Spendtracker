@@ -11,6 +11,7 @@ export default function AddPage() {
   const [direction, setDirection] = useState<"expense" | "income">("expense");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [category, setCategory] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -43,6 +44,7 @@ export default function AddPage() {
       direction,
       amount: amt,
       note: (note || (direction === "expense" ? "expense" : "income")).slice(0, 80),
+      category: category.trim() ? category.trim() : null,
       occurred_at: new Date().toISOString(),
       payment_method: "manual_form",
     });
@@ -104,6 +106,15 @@ export default function AddPage() {
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="chai, rent, groceries…"
+          style={{ marginTop: 8 }}
+        />
+
+        <label className="muted" style={{ marginTop: 12, display: "block" }}>Category (optional)</label>
+        <input
+          className="input"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          placeholder="Food, Travel, Bills…"
           style={{ marginTop: 8 }}
         />
 

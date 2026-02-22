@@ -15,6 +15,7 @@ export default function TabBar() {
     { href: "/dashboard", label: "Home", icon: "⌂" },
     { href: "/add", label: "Add", icon: "＋" },
     { href: "/transactions", label: "Txns", icon: "≡" },
+    { href: "/analysis", label: "Analysis", icon: "⬡" },
     { href: "/settings", label: "Settings", icon: "⚙︎" },
   ];
 

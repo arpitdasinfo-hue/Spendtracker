@@ -15,15 +15,19 @@ function parse(textRaw: string) {
       ? "income"
       : "expense";
 
+  const catMatch = text.match(/#([a-zA-Z0-9_\-]+)/);
+  const category = catMatch ? catMatch[1] : null;
+
   const m = text.match(/(\d+(?:\.\d+)?)/);
   const amount = m ? Number(m[1]) : null;
 
   let note = text;
+  if (catMatch) note = note.replace(catMatch[0], "");
   if (m) note = note.replace(m[0], "");
   note = note.replace(/^(spent|paid|expense|income|earned|received)\s*/i, "").trim();
   if (!note) note = direction === "income" ? "income" : "expense";
 
-  return { direction, amount, note };
+  return { direction, amount, note, category };
 }
 
 export default function QuickAdd() {
@@ -44,7 +48,7 @@ export default function QuickAdd() {
       return;
     }
 
-    const { direction, amount, note } = parse(text);
+    const { direction, amount, note, category } = parse(text);
 
     if (!amount || Number.isNaN(amount) || amount <= 0) {
       setLoading(false);
@@ -57,6 +61,7 @@ export default function QuickAdd() {
       direction,
       amount,
       note: note.slice(0, 80),
+      category,
       occurred_at: new Date().toISOString(),
       payment_method: "quick_add",
     });
