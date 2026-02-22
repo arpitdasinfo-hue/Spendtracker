@@ -42,11 +42,11 @@ export default function AddPage() {
 
       const { data: m, error: mErr } = await supabase
         .from("payment_methods")
-        .select("id, name, channel, is_active")
+        .select("id, name, channel, payment_type, is_active")
         .eq("is_active", true)
         .order("created_at", { ascending: false });
 
-      if (!mErr) setMethods((m ?? []).map((x: any) => ({ id: x.id, label: x.name, sublabel: x.channel })));
+      if (!mErr) setMethods((m ?? []).map((x: any) => ({ id: x.id, label: x.name, sublabel: `${x.payment_type ?? ""} · ${x.channel}`.trim() })));
     })();
   }, [router]);
 

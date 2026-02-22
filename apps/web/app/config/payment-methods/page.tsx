@@ -7,27 +7,50 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 type Instrument = {
   id: string;
   name: string;
-  type: string | null; // credit_card / savings_account / cash / other
+  kind: string | null;   // new model
+  type?: string | null;  // legacy fallback
   is_active: boolean;
 };
 
 type MethodRow = {
   id: string;
+  payment_type: string | null;
   channel: string;
   name: string;
-  source_instrument_id: string | null;
   netbanking_account_id: string | null;
   is_active: boolean;
 };
 
-const CHANNELS = ["upi", "card", "netbanking", "cash", "other"] as const;
+type PaymentType = "credit_card" | "savings_account" | "netbanking" | "cash" | "other";
+type Mode = "upi" | "card";
 
-function autoName(channel: string, sourceName?: string, nbName?: string) {
-  if (channel === "netbanking") return `Netbanking - ${nbName ?? "Account"}`;
-  if (channel === "upi") return `UPI - ${sourceName ?? "Source"}`;
-  if (channel === "card") return `Card - ${sourceName ?? "Source"}`;
-  if (channel === "cash") return "Cash";
-  return "Other";
+const PAYMENT_TYPES: { id: PaymentType; label: string }[] = [
+  { id: "credit_card", label: "Credit Card" },
+  { id: "savings_account", label: "Savings Account" },
+  { id: "netbanking", label: "Netbanking" },
+  { id: "cash", label: "Cash" },
+  { id: "other", label: "Other" },
+];
+
+function kindOf(i: Instrument): PaymentType {
+  const k = (i.kind ?? "").toLowerCase();
+  const legacy = (i.type ?? "").toLowerCase();
+
+  if (k === "credit_card" || legacy === "credit_card") return "credit_card";
+  if (k === "savings_account" || legacy === "bank_account") return "savings_account";
+  if (k === "cash" || legacy === "cash") return "cash";
+  return "other";
+}
+
+function buildName(t: PaymentType, mode: Mode | null, typedName: string, netbankAccountName?: string) {
+  if (t === "cash") return "Cash";
+  if (t === "other") return typedName.trim() ? `Other - ${typedName.trim()}` : "Other";
+  if (t === "netbanking") return `Netbanking - ${netbankAccountName ?? "Savings Account"}`;
+
+  // credit_card / savings_account
+  const m = (mode ?? "upi").toUpperCase();
+  const n = typedName.trim();
+  return `${m} - ${n || (t === "credit_card" ? "Credit Card" : "Savings Account")}`;
 }
 
 export default function PaymentMethodsConfigPage() {
@@ -39,20 +62,28 @@ export default function PaymentMethodsConfigPage() {
   const [instruments, setInstruments] = useState<Instrument[]>([]);
   const [methods, setMethods] = useState<MethodRow[]>([]);
 
-  const [channel, setChannel] = useState<(typeof CHANNELS)[number]>("upi");
-  const [sourceId, setSourceId] = useState<string>("");
-  const [netbankId, setNetbankId] = useState<string>("");
-  const [name, setName] = useState<string>("");
+  // Step 1
+  const [paymentType, setPaymentType] = useState<PaymentType>("credit_card");
 
-  const savingsAccounts = useMemo(
-    () => instruments.filter((i) => (i.type ?? "") === "savings_account" && i.is_active),
-    [instruments]
-  );
+  // Step 2 (conditional)
+  const [mode, setMode] = useState<Mode>("upi"); // only CC/Savings
+  const [netbankSavingsId, setNetbankSavingsId] = useState<string>(""); // only Netbanking
 
-  const ccAndSavings = useMemo(
-    () => instruments.filter((i) => ["credit_card", "savings_account"].includes(i.type ?? "") && i.is_active),
-    [instruments]
-  );
+  // Step 3 (conditional) - typed name
+  const [typedName, setTypedName] = useState<string>("");
+
+  const savingsAccounts = useMemo(() => {
+    return instruments.filter((i) => i.is_active && kindOf(i) === "savings_account");
+  }, [instruments]);
+
+  const netbankAccountName = useMemo(() => {
+    return instruments.find((x) => x.id === netbankSavingsId)?.name;
+  }, [instruments, netbankSavingsId]);
+
+  const computedName = useMemo(() => {
+    const m = (paymentType === "credit_card" || paymentType === "savings_account") ? mode : null;
+    return buildName(paymentType, m, typedName, netbankAccountName);
+  }, [paymentType, mode, typedName, netbankAccountName]);
 
   async function load() {
     setMsg(null);
@@ -61,7 +92,7 @@ export default function PaymentMethodsConfigPage() {
 
     const { data: inst, error: iErr } = await supabase
       .from("instruments")
-      .select("id, name, type, is_active")
+      .select("id, name, kind, type, is_active")
       .order("created_at", { ascending: false });
 
     if (iErr) setMsg(iErr.message);
@@ -69,7 +100,7 @@ export default function PaymentMethodsConfigPage() {
 
     const { data: m, error: mErr } = await supabase
       .from("payment_methods")
-      .select("id, channel, name, source_instrument_id, netbanking_account_id, is_active")
+      .select("id, payment_type, channel, name, netbanking_account_id, is_active")
       .order("created_at", { ascending: false });
 
     if (mErr) setMsg(mErr.message);
@@ -78,43 +109,81 @@ export default function PaymentMethodsConfigPage() {
 
   useEffect(() => { load(); }, []);
 
+  // Reset fields when type changes
   useEffect(() => {
-    const srcName = instruments.find((x) => x.id === sourceId)?.name;
-    const nbName = instruments.find((x) => x.id === netbankId)?.name;
-    setName(autoName(channel, srcName, nbName));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channel, sourceId, netbankId]);
+    setMsg(null);
+    setTypedName("");
+    setNetbankSavingsId("");
+    if (paymentType === "credit_card" || paymentType === "savings_account") setMode("upi");
+  }, [paymentType]);
 
-  async function addMethod() {
+  function showMode() {
+    return paymentType === "credit_card" || paymentType === "savings_account";
+  }
+
+  function showNetbankDropdown() {
+    return paymentType === "netbanking";
+  }
+
+  function showTypedName() {
+    return paymentType === "credit_card" || paymentType === "savings_account" || paymentType === "other";
+  }
+
+  function typedNameLabel() {
+    if (paymentType === "credit_card") return "Credit card name";
+    if (paymentType === "savings_account") return "Savings account name";
+    return "Name (optional)";
+  }
+
+  function typedNamePlaceholder() {
+    if (paymentType === "credit_card") return "HDFC Millennia (xxxx 1234)";
+    if (paymentType === "savings_account") return "SBI Savings (Salary)";
+    return "Wallet / Adjustment / Misc";
+  }
+
+  async function saveMethod() {
     setMsg(null);
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return router.replace("/login");
 
-    const n = name.trim();
-    if (!n) return setMsg("Name is required.");
+    // validations per aligned spec
+    if (showMode()) {
+      if (!typedName.trim()) return setMsg("Enter the name in the third field.");
+    }
 
-    if ((channel === "upi" || channel === "card") && !sourceId) return setMsg("Select a source instrument.");
-    if (channel === "netbanking" && !netbankId) return setMsg("Select a savings account for netbanking.");
+    if (paymentType === "netbanking") {
+      if (!netbankSavingsId) return setMsg("Select which savings account is used for Netbanking.");
+    }
+
+    let channel: string = "other";
+    if (paymentType === "credit_card" || paymentType === "savings_account") channel = mode; // upi/card
+    else if (paymentType === "netbanking") channel = "netbanking";
+    else if (paymentType === "cash") channel = "cash";
+    else channel = "other";
 
     const payload: any = {
       user_id: u.user.id,
+      payment_type: paymentType,
       channel,
-      name: n,
+      name: computedName,
       is_active: true,
-      source_instrument_id: null,
+      source_instrument_id: null,        // not used in this aligned version
       netbanking_account_id: null,
     };
 
-    if (channel === "upi" || channel === "card") payload.source_instrument_id = sourceId;
-    if (channel === "netbanking") payload.netbanking_account_id = netbankId;
+    if (paymentType === "netbanking") payload.netbanking_account_id = netbankSavingsId;
 
     const { error } = await supabase.from("payment_methods").insert(payload);
     if (error) return setMsg(error.message);
 
-    setSourceId(""); setNetbankId("");
-    await load();
     setMsg("Saved ✅");
     setTimeout(() => setMsg(null), 900);
+
+    setTypedName("");
+    setNetbankSavingsId("");
+    if (showMode()) setMode("upi");
+
+    await load();
   }
 
   async function toggle(id: string, next: boolean) {
@@ -138,7 +207,7 @@ export default function PaymentMethodsConfigPage() {
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
           <h1 className="h1">Config · Payment Methods</h1>
-          <p className="sub">Create UPI/Card/Netbanking methods that point to your instruments.</p>
+          <p className="sub">Type → (Mode) → (Name). Netbanking links to a savings account.</p>
         </div>
         <span className="badge">Payments</span>
       </div>
@@ -146,59 +215,81 @@ export default function PaymentMethodsConfigPage() {
       {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
 
       <div className="card cardPad" style={{ marginTop: 14 }}>
-        <div className="pill"><span>🧾</span><span className="muted">Add payment method</span></div>
+        <div className="pill"><span>🧾</span><span className="muted">Create payment method</span></div>
         <div className="sep" />
 
-        <label className="muted">Channel</label>
-        <select className="input" value={channel} onChange={(e) => setChannel(e.target.value as any)} style={{ marginTop: 8 }}>
-          {CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+        {/* Step 1 */}
+        <label className="muted">Payment Type</label>
+        <select
+          className="input"
+          value={paymentType}
+          onChange={(e) => setPaymentType(e.target.value as PaymentType)}
+          style={{ marginTop: 8 }}
+        >
+          {PAYMENT_TYPES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
         </select>
 
-        {(channel === "upi" || channel === "card") && (
+        {/* Step 2 */}
+        {showMode() && (
           <>
             <div style={{ height: 10 }} />
-            <label className="muted">Source instrument (Credit Card / Savings)</label>
-            <select className="input" value={sourceId} onChange={(e) => setSourceId(e.target.value)} style={{ marginTop: 8 }}>
-              <option value="">Select…</option>
-              {ccAndSavings.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+            <label className="muted">Mode</label>
+            <select className="input" value={mode} onChange={(e) => setMode(e.target.value as Mode)} style={{ marginTop: 8 }}>
+              <option value="upi">UPI</option>
+              <option value="card">Card</option>
             </select>
           </>
         )}
 
-        {channel === "netbanking" && (
+        {showNetbankDropdown() && (
           <>
             <div style={{ height: 10 }} />
-            <label className="muted">Netbanking account (Savings)</label>
-            <select className="input" value={netbankId} onChange={(e) => setNetbankId(e.target.value)} style={{ marginTop: 8 }}>
+            <label className="muted">Select savings account for Netbanking</label>
+            <select className="input" value={netbankSavingsId} onChange={(e) => setNetbankSavingsId(e.target.value)} style={{ marginTop: 8 }}>
               <option value="">Select…</option>
               {savingsAccounts.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
             </select>
           </>
         )}
 
-        <div style={{ height: 10 }} />
-        <label className="muted">Name</label>
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} style={{ marginTop: 8 }} />
+        {/* Step 3 */}
+        {showTypedName() && (
+          <>
+            <div style={{ height: 10 }} />
+            <label className="muted">{typedNameLabel()}</label>
+            <input
+              className="input"
+              value={typedName}
+              onChange={(e) => setTypedName(e.target.value)}
+              placeholder={typedNamePlaceholder()}
+              style={{ marginTop: 8 }}
+            />
+          </>
+        )}
 
-        <button className="btn btnPrimary" style={{ width: "100%", marginTop: 12 }} onClick={addMethod}>
+        <div className="sep" />
+
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <span className="muted">Will save as</span>
+          <span className="badge">{computedName}</span>
+        </div>
+
+        <button className="btn btnPrimary" style={{ width: "100%", marginTop: 12 }} onClick={saveMethod}>
           Save payment method
         </button>
-
-        <p className="faint" style={{ marginTop: 10, fontSize: 12 }}>
-          Examples: “UPI - HDFC CC”, “Card - ICICI CC”, “Netbanking - SBI Savings”.
-        </p>
       </div>
 
       <div className="card cardPad" style={{ marginTop: 12 }}>
         <div className="pill"><span>📦</span><span className="muted">Your payment methods</span></div>
         <div className="sep" />
+
         <div className="col" style={{ gap: 10 }}>
           {methods.map((m) => (
             <div key={m.id} className="row" style={{ justifyContent: "space-between" }}>
               <div>
                 <div style={{ fontWeight: 800 }}>{m.name}</div>
                 <div className="faint" style={{ fontSize: 12 }}>
-                  channel: {m.channel}
+                  {m.payment_type ?? "—"} · {m.channel}
                 </div>
               </div>
               <div className="row">
