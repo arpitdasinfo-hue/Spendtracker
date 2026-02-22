@@ -7,8 +7,8 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 type Instrument = {
   id: string;
   name: string;
-  kind: string | null;   // new model
-  type?: string | null;  // legacy fallback
+  kind: string | null;
+  type?: string | null;
   is_active: boolean;
 };
 
@@ -35,7 +35,6 @@ const PAYMENT_TYPES: { id: PaymentType; label: string }[] = [
 function kindOf(i: Instrument): PaymentType {
   const k = (i.kind ?? "").toLowerCase();
   const legacy = (i.type ?? "").toLowerCase();
-
   if (k === "credit_card" || legacy === "credit_card") return "credit_card";
   if (k === "savings_account" || legacy === "bank_account") return "savings_account";
   if (k === "cash" || legacy === "cash") return "cash";
@@ -47,10 +46,24 @@ function buildName(t: PaymentType, mode: Mode | null, typedName: string, netbank
   if (t === "other") return typedName.trim() ? `Other - ${typedName.trim()}` : "Other";
   if (t === "netbanking") return `Netbanking - ${netbankAccountName ?? "Savings Account"}`;
 
-  // credit_card / savings_account
   const m = (mode ?? "upi").toUpperCase();
   const n = typedName.trim();
   return `${m} - ${n || (t === "credit_card" ? "Credit Card" : "Savings Account")}`;
+}
+
+function guessTypedName(paymentType: PaymentType, channel: string, name: string) {
+  // For CC/Savings: name format is "UPI - X" or "CARD - X"
+  // For Other: "Other - X" or "Other"
+  if (paymentType === "other") {
+    if (name.toLowerCase().startsWith("other - ")) return name.slice(8).trim();
+    return "";
+  }
+  if (paymentType === "credit_card" || paymentType === "savings_account") {
+    const idx = name.indexOf(" - ");
+    if (idx >= 0) return name.slice(idx + 3).trim();
+    return "";
+  }
+  return "";
 }
 
 export default function PaymentMethodsConfigPage() {
@@ -58,18 +71,20 @@ export default function PaymentMethodsConfigPage() {
   const router = useRouter();
 
   const [msg, setMsg] = useState<string | null>(null);
-
   const [instruments, setInstruments] = useState<Instrument[]>([]);
   const [methods, setMethods] = useState<MethodRow[]>([]);
+
+  // Edit state
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // Step 1
   const [paymentType, setPaymentType] = useState<PaymentType>("credit_card");
 
-  // Step 2 (conditional)
-  const [mode, setMode] = useState<Mode>("upi"); // only CC/Savings
-  const [netbankSavingsId, setNetbankSavingsId] = useState<string>(""); // only Netbanking
+  // Step 2
+  const [mode, setMode] = useState<Mode>("upi");
+  const [netbankSavingsId, setNetbankSavingsId] = useState<string>("");
 
-  // Step 3 (conditional) - typed name
+  // Step 3
   const [typedName, setTypedName] = useState<string>("");
 
   const savingsAccounts = useMemo(() => {
@@ -109,22 +124,12 @@ export default function PaymentMethodsConfigPage() {
 
   useEffect(() => { load(); }, []);
 
-  // Reset fields when type changes
-  useEffect(() => {
-    setMsg(null);
-    setTypedName("");
-    setNetbankSavingsId("");
-    if (paymentType === "credit_card" || paymentType === "savings_account") setMode("upi");
-  }, [paymentType]);
-
   function showMode() {
     return paymentType === "credit_card" || paymentType === "savings_account";
   }
-
   function showNetbankDropdown() {
     return paymentType === "netbanking";
   }
-
   function showTypedName() {
     return paymentType === "credit_card" || paymentType === "savings_account" || paymentType === "other";
   }
@@ -134,56 +139,91 @@ export default function PaymentMethodsConfigPage() {
     if (paymentType === "savings_account") return "Savings account name";
     return "Name (optional)";
   }
-
   function typedNamePlaceholder() {
     if (paymentType === "credit_card") return "HDFC Millennia (xxxx 1234)";
     if (paymentType === "savings_account") return "SBI Savings (Salary)";
     return "Wallet / Adjustment / Misc";
   }
 
-  async function saveMethod() {
+  function resetForm() {
+    setEditingId(null);
+    setPaymentType("credit_card");
+    setMode("upi");
+    setNetbankSavingsId("");
+    setTypedName("");
+    setMsg(null);
+  }
+
+  async function saveOrUpdate() {
     setMsg(null);
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return router.replace("/login");
 
-    // validations per aligned spec
-    if (showMode()) {
-      if (!typedName.trim()) return setMsg("Enter the name in the third field.");
-    }
-
-    if (paymentType === "netbanking") {
-      if (!netbankSavingsId) return setMsg("Select which savings account is used for Netbanking.");
-    }
+    if (showMode() && !typedName.trim()) return setMsg("Enter the name in the third field.");
+    if (paymentType === "netbanking" && !netbankSavingsId) return setMsg("Select which savings account is used for Netbanking.");
 
     let channel: string = "other";
-    if (paymentType === "credit_card" || paymentType === "savings_account") channel = mode; // upi/card
+    if (paymentType === "credit_card" || paymentType === "savings_account") channel = mode;
     else if (paymentType === "netbanking") channel = "netbanking";
     else if (paymentType === "cash") channel = "cash";
     else channel = "other";
 
     const payload: any = {
-      user_id: u.user.id,
       payment_type: paymentType,
       channel,
       name: computedName,
       is_active: true,
-      source_instrument_id: null,        // not used in this aligned version
       netbanking_account_id: null,
     };
 
     if (paymentType === "netbanking") payload.netbanking_account_id = netbankSavingsId;
 
-    const { error } = await supabase.from("payment_methods").insert(payload);
-    if (error) return setMsg(error.message);
+    let errMsg: string | null = null;
 
-    setMsg("Saved ✅");
+    if (editingId) {
+      const { error } = await supabase.from("payment_methods").update(payload).eq("id", editingId);
+      if (error) errMsg = error.message;
+    } else {
+      const { error } = await supabase.from("payment_methods").insert({
+        user_id: u.user.id,
+        ...payload,
+      });
+      if (error) errMsg = error.message;
+    }
+
+    if (errMsg) return setMsg(errMsg);
+
+    setMsg(editingId ? "Updated ✅" : "Saved ✅");
     setTimeout(() => setMsg(null), 900);
 
-    setTypedName("");
-    setNetbankSavingsId("");
-    if (showMode()) setMode("upi");
-
+    resetForm();
     await load();
+  }
+
+  function startEdit(m: MethodRow) {
+    setMsg(null);
+    setEditingId(m.id);
+
+    const pt = (m.payment_type ?? "other") as PaymentType;
+    setPaymentType(pt);
+
+    if (pt === "credit_card" || pt === "savings_account") {
+      setMode((m.channel === "card" ? "card" : "upi") as Mode);
+      setTypedName(guessTypedName(pt, m.channel, m.name));
+      setNetbankSavingsId("");
+    } else if (pt === "netbanking") {
+      setNetbankSavingsId(m.netbanking_account_id ?? "");
+      setTypedName("");
+      setMode("upi");
+    } else if (pt === "cash") {
+      setTypedName("");
+      setMode("upi");
+      setNetbankSavingsId("");
+    } else {
+      setTypedName(guessTypedName("other", m.channel, m.name));
+      setMode("upi");
+      setNetbankSavingsId("");
+    }
   }
 
   async function toggle(id: string, next: boolean) {
@@ -199,6 +239,8 @@ export default function PaymentMethodsConfigPage() {
     setMsg(null);
     const { error } = await supabase.from("payment_methods").delete().eq("id", id);
     if (error) return setMsg(error.message);
+    // if deleting currently edited row, reset
+    if (editingId === id) resetForm();
     await load();
   }
 
@@ -209,16 +251,15 @@ export default function PaymentMethodsConfigPage() {
           <h1 className="h1">Config · Payment Methods</h1>
           <p className="sub">Type → (Mode) → (Name). Netbanking links to a savings account.</p>
         </div>
-        <span className="badge">Payments</span>
+        <span className="badge">{editingId ? "Editing" : "Payments"}</span>
       </div>
 
       {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
 
       <div className="card cardPad" style={{ marginTop: 14 }}>
-        <div className="pill"><span>🧾</span><span className="muted">Create payment method</span></div>
+        <div className="pill"><span>🧾</span><span className="muted">{editingId ? "Modify payment method" : "Create payment method"}</span></div>
         <div className="sep" />
 
-        {/* Step 1 */}
         <label className="muted">Payment Type</label>
         <select
           className="input"
@@ -229,7 +270,6 @@ export default function PaymentMethodsConfigPage() {
           {PAYMENT_TYPES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
         </select>
 
-        {/* Step 2 */}
         {showMode() && (
           <>
             <div style={{ height: 10 }} />
@@ -252,7 +292,6 @@ export default function PaymentMethodsConfigPage() {
           </>
         )}
 
-        {/* Step 3 */}
         {showTypedName() && (
           <>
             <div style={{ height: 10 }} />
@@ -268,15 +307,25 @@ export default function PaymentMethodsConfigPage() {
         )}
 
         <div className="sep" />
-
         <div className="row" style={{ justifyContent: "space-between" }}>
           <span className="muted">Will save as</span>
           <span className="badge">{computedName}</span>
         </div>
 
-        <button className="btn btnPrimary" style={{ width: "100%", marginTop: 12 }} onClick={saveMethod}>
-          Save payment method
-        </button>
+        <div className="row" style={{ marginTop: 12 }}>
+          <button className="btn btnPrimary" style={{ flex: 1 }} onClick={saveOrUpdate}>
+            {editingId ? "Update payment method" : "Save payment method"}
+          </button>
+          {editingId ? (
+            <button className="btn" style={{ flex: 1 }} onClick={resetForm} type="button">
+              Cancel edit
+            </button>
+          ) : (
+            <button className="btn" style={{ flex: 1 }} onClick={() => { setTypedName(""); setNetbankSavingsId(""); }} type="button">
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="card cardPad" style={{ marginTop: 12 }}>
@@ -289,10 +338,11 @@ export default function PaymentMethodsConfigPage() {
               <div>
                 <div style={{ fontWeight: 800 }}>{m.name}</div>
                 <div className="faint" style={{ fontSize: 12 }}>
-                  {m.payment_type ?? "—"} · {m.channel}
+                  {(m.payment_type ?? "—")} · {m.channel}
                 </div>
               </div>
               <div className="row">
+                <button className="btn" onClick={() => startEdit(m)}>Modify</button>
                 <button className="btn" onClick={() => toggle(m.id, !m.is_active)}>
                   {m.is_active ? "Disable" : "Enable"}
                 </button>
