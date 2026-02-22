@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import QuickAddDrawer from "@/components/QuickAddDrawer";
 import ProgressRing from "@/components/ProgressRing";
 import { currencySymbol } from "@/lib/currency";
+import ProfileSetup from "@/components/ProfileSetup";
 
 function fmt(sym: string, n: number) {
   return `${sym}${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -34,7 +35,7 @@ export default async function DashboardPage() {
 
   const { data: txns } = await supabase
     .from("transactions")
-    .select("id, direction, amount, note, created_at, category_id")
+    .select("id, direction, amount, note, created_at")
     .gte("created_at", monthStart)
     .order("created_at", { ascending: false })
     .limit(12);
@@ -63,6 +64,9 @@ export default async function DashboardPage() {
 
   return (
     <main className="container">
+      {/* client modal */}
+      <ProfileSetup />
+
       <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <h1 className="h1">Hello, {name} 👋</h1>
@@ -145,46 +149,6 @@ export default async function DashboardPage() {
             )}
           </div>
         </div>
-      </div>
-
-      <div className="card cardPad" style={{ marginTop: 12 }}>
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <div className="pill">
-            <span>🧾</span><span className="muted">Recent</span>
-          </div>
-          <Link href="/transactions" className="badge">Open list →</Link>
-        </div>
-
-        <div className="sep" />
-
-        {(!txns || txns.length === 0) ? (
-          <p className="muted">No transactions yet. Add your first one ✨</p>
-        ) : (
-          <div className="col" style={{ gap: 10 }}>
-            {txns.map((t) => (
-              <div key={t.id} className="row" style={{ justifyContent: "space-between" }}>
-                <div className="row" style={{ gap: 10 }}>
-                  <span className={`badge ${t.direction === "income" ? "badgeGood" : "badgeBad"}`}>
-                    {t.direction === "income" ? "↘ IN" : "↗ OUT"}
-                  </span>
-                  <div>
-                    <div style={{ fontWeight: 650 }}>{t.note}</div>
-                    <div className="faint" style={{ fontSize: 12 }}>
-                      {new Date(t.created_at).toLocaleString("en-IN")}
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  className="money"
-                  style={{ fontWeight: 800, color: t.direction === "income" ? "var(--good)" : "var(--bad)" }}
-                >
-                  {t.direction === "income" ? "+" : "-"}{sym}{Number(t.amount ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </main>
   );

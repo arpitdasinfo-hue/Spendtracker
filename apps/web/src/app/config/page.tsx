@@ -6,7 +6,7 @@ export default function ConfigIndexPage() {
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
           <h1 className="h1">Config</h1>
-          <p className="sub">Set up categories, payment instruments, currency, and rules.</p>
+          <p className="sub">Set up categories, instruments, currency, budgets, and your profile.</p>
         </div>
         <span className="badge">Setup</span>
       </div>
@@ -21,10 +21,12 @@ export default function ConfigIndexPage() {
         <div className="sep" />
 
         <div className="grid2" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+          <Link className="btn btnPrimary" href="/config/user">👤 User</Link>
+          <Link className="btn btnPrimary" href="/config/currency">💱 Currency</Link>
           <Link className="btn btnPrimary" href="/config/categories">🏷️ Categories</Link>
           <Link className="btn btnPrimary" href="/config/instruments">💳 Instruments</Link>
-          <Link className="btn btnPrimary" href="/config/currency">💱 Currency</Link>
           <Link className="btn" href="/budget">◔ Budget rules</Link>
+          <Link className="btn" href="/analysis">⬡ Analysis</Link>
         </div>
 
         <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>

@@ -7,19 +7,9 @@ import ProgressRing from "@/components/ProgressRing";
 import MiniRing from "@/components/MiniRing";
 import { useCurrencySymbol } from "@/lib/useCurrency";
 
-type CatBudgetRow = {
-  id: string;
-  category_id: string;
-  monthly_budget: number;
-  categories?: { name: string } | null;
-};
-
-type Txn = {
-  direction: "expense" | "income";
-  amount: number | null;
-  category_id: string | null;
-  created_at: string;
-};
+type Cat = { id: string; name: string };
+type CatBudgetRow = { id: string; category_id: string; monthly_budget: number };
+type Txn = { direction: "expense" | "income"; amount: number | null; category_id: string | null; created_at: string };
 
 export default function BudgetPage() {
   const supabase = createSupabaseBrowserClient();
@@ -29,13 +19,13 @@ export default function BudgetPage() {
   const [monthlyBudget, setMonthlyBudget] = useState<string>("");
   const [savedMonthlyBudget, setSavedMonthlyBudget] = useState<number>(0);
 
-  const [cats, setCats] = useState<{ id: string; name: string }[]>([]);
+  const [cats, setCats] = useState<Cat[]>([]);
   const [catBudgets, setCatBudgets] = useState<CatBudgetRow[]>([]);
+  const [txns, setTxns] = useState<Txn[]>([]);
 
   const [newCategoryId, setNewCategoryId] = useState<string>("");
   const [newCatBudget, setNewCatBudget] = useState<string>("");
 
-  const [txns, setTxns] = useState<Txn[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
 
   const monthStartISO = useMemo(() => {
@@ -63,45 +53,57 @@ export default function BudgetPage() {
     return (catBudgets ?? []).reduce((s, r) => s + Number(r.monthly_budget ?? 0), 0);
   }, [catBudgets]);
 
+  const catNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    cats.forEach((c) => m.set(c.id, c.name));
+    return m;
+  }, [cats]);
+
+  async function loadAll() {
+    setMsg(null);
+
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return router.replace("/login");
+
+    const { data: b, error: bErr } = await supabase
+      .from("budgets")
+      .select("monthly_budget")
+      .eq("user_id", u.user.id)
+      .maybeSingle();
+    if (bErr) setMsg(bErr.message);
+
+    const mb = Number(b?.monthly_budget ?? 0);
+    setSavedMonthlyBudget(mb);
+    setMonthlyBudget(mb ? String(mb) : "");
+
+    const { data: cdata, error: cErr } = await supabase
+      .from("categories")
+      .select("id, name, is_active")
+      .eq("is_active", true)
+      .order("name", { ascending: true });
+    if (cErr) setMsg(cErr.message);
+    setCats((cdata ?? []) as any);
+
+    const { data: cb, error: cbErr } = await supabase
+      .from("category_budgets")
+      .select("id, category_id, monthly_budget")
+      .order("updated_at", { ascending: false });
+    if (cbErr) setMsg(cbErr.message);
+    setCatBudgets((cb ?? []) as any);
+
+    const { data: t, error: tErr } = await supabase
+      .from("transactions")
+      .select("direction, amount, category_id, created_at")
+      .gte("created_at", monthStartISO)
+      .order("created_at", { ascending: false });
+    if (tErr) setMsg(tErr.message);
+    setTxns((t ?? []) as any);
+  }
+
   useEffect(() => {
-    (async () => {
-      const { data: u } = await supabase.auth.getUser();
-      if (!u.user) return router.replace("/login");
-
-      const { data: b, error: bErr } = await supabase
-        .from("budgets")
-        .select("monthly_budget")
-        .eq("user_id", u.user.id)
-        .maybeSingle();
-      if (bErr) setMsg(bErr.message);
-
-      const mb = Number(b?.monthly_budget ?? 0);
-      setSavedMonthlyBudget(mb);
-      setMonthlyBudget(mb ? String(mb) : "");
-
-      const { data: cdata } = await supabase
-        .from("categories")
-        .select("id, name, is_active")
-        .eq("is_active", true)
-        .order("name", { ascending: true });
-      setCats((cdata ?? []).map((c: any) => ({ id: c.id, name: c.name })));
-
-      const { data: cb, error: cbErr } = await supabase
-        .from("category_budgets")
-        .select("id, category_id, monthly_budget, categories(name)")
-        .order("updated_at", { ascending: false });
-      if (cbErr) setMsg(cbErr.message);
-      setCatBudgets((cb ?? []) as any);
-
-      const { data: t, error: tErr } = await supabase
-        .from("transactions")
-        .select("direction, amount, category_id, created_at")
-        .gte("created_at", monthStartISO)
-        .order("created_at", { ascending: false });
-      if (tErr) setMsg(tErr.message);
-      setTxns((t ?? []) as Txn[]);
-    })();
-  }, [router, monthStartISO]);
+    loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthStartISO]);
 
   async function saveMonthly() {
     setMsg(null);
@@ -110,8 +112,7 @@ export default function BudgetPage() {
 
     const n = Number(monthlyBudget);
     if (Number.isNaN(n) || n < 0) return setMsg("Enter a valid monthly budget.");
-
-    if (allocated > n) return setMsg(`Allocated category budgets exceed monthly budget (${sym}${allocated.toFixed(0)} > ${sym}${n.toFixed(0)}).`);
+    if (allocated > n) return setMsg(`Allocated exceeds monthly (${sym}${allocated.toFixed(0)} > ${sym}${n.toFixed(0)}).`);
 
     const { error } = await supabase.from("budgets").upsert({
       user_id: u.user.id,
@@ -137,7 +138,7 @@ export default function BudgetPage() {
     const existing = catBudgets.find((x) => x.category_id === newCategoryId);
     const nextAllocated = allocated - Number(existing?.monthly_budget ?? 0) + n;
     if (savedMonthlyBudget > 0 && nextAllocated > savedMonthlyBudget) {
-      return setMsg(`Total category budgets would exceed monthly budget (${sym}${nextAllocated.toFixed(0)} > ${sym}${savedMonthlyBudget.toFixed(0)}).`);
+      return setMsg(`Total category budgets exceed monthly (${sym}${nextAllocated.toFixed(0)} > ${sym}${savedMonthlyBudget.toFixed(0)}).`);
     }
 
     const { error } = await supabase.from("category_budgets").upsert({
@@ -149,14 +150,9 @@ export default function BudgetPage() {
 
     if (error) return setMsg(error.message);
 
-    const { data: cb } = await supabase
-      .from("category_budgets")
-      .select("id, category_id, monthly_budget, categories(name)")
-      .order("updated_at", { ascending: false });
-    setCatBudgets((cb ?? []) as any);
-
     setNewCategoryId("");
     setNewCatBudget("");
+    await loadAll();
     setMsg("Category budget saved ✅");
     setTimeout(() => setMsg(null), 900);
   }
@@ -194,14 +190,7 @@ export default function BudgetPage() {
         </div>
 
         <label className="muted" style={{ marginTop: 12, display: "block" }}>Monthly budget ({sym})</label>
-        <input
-          className="input money"
-          value={monthlyBudget}
-          onChange={(e) => setMonthlyBudget(e.target.value)}
-          placeholder="20000"
-          inputMode="decimal"
-          style={{ marginTop: 8, fontWeight: 800 }}
-        />
+        <input className="input money" value={monthlyBudget} onChange={(e) => setMonthlyBudget(e.target.value)} placeholder="20000" inputMode="decimal" style={{ marginTop: 8, fontWeight: 800 }} />
 
         <div className="row" style={{ marginTop: 12 }}>
           <button className="btn btnPrimary" style={{ flex: 1 }} onClick={saveMonthly}>
@@ -241,7 +230,7 @@ export default function BudgetPage() {
         ) : (
           <div className="col" style={{ gap: 10 }}>
             {catBudgets.map((c) => {
-              const title = c.categories?.name ?? "Category";
+              const title = catNameById.get(c.category_id) ?? "Category";
               const spent = categorySpend.get(c.category_id) ?? 0;
               return (
                 <div key={c.id} className="row" style={{ gap: 10, alignItems: "stretch" }}>
