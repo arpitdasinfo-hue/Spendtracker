@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import QuickAdd from "@/components/QuickAdd";
+import QuickAddDrawer from "@/components/QuickAddDrawer";
 import ProgressRing from "@/components/ProgressRing";
 
 function inr(n: number) {
-  return n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  return n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 }
 
 export default async function DashboardPage() {
@@ -13,35 +13,13 @@ export default async function DashboardPage() {
   const { data } = await supabase.auth.getUser();
   if (!data.user) redirect("/login");
 
-  // Budget
-  const { data: b } = await supabase
-    .from("budgets")
-    .select("monthly_budget")
-    .eq("user_id", data.user.id)
-    .maybeSingle();
-
-  const monthlyBudget = Number(b?.monthly_budget ?? 0);
-
-  // This month expense
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-  const { data: monthTxns } = await supabase
-    .from("transactions")
-    .select("direction, amount, created_at")
-    .gte("created_at", monthStart);
-
-  const spentThisMonth = (monthTxns ?? [])
-    .filter((t) => t.direction === "expense")
-    .reduce((s, t) => s + Number(t.amount ?? 0), 0);
-
-  // last 30 days totals
-  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-
   const { data: txns } = await supabase
     .from("transactions")
-    .select("id, direction, amount, note, created_at")
-    .gte("created_at", since)
+    .select("id, direction, amount, note, category, created_at")
+    .gte("created_at", monthStart)
     .order("created_at", { ascending: false })
     .limit(12);
 
@@ -53,10 +31,15 @@ export default async function DashboardPage() {
     .filter((t) => t.direction === "income")
     .reduce((s, t) => s + Number(t.amount ?? 0), 0);
 
-  const net = income - expense;
+  const { data: b } = await supabase
+    .from("budgets")
+    .select("monthly_budget")
+    .eq("user_id", data.user.id)
+    .maybeSingle();
 
-  const today = new Date();
-  const niceDate = today.toLocaleDateString("en-IN", {
+  const monthlyBudget = Number(b?.monthly_budget ?? 0);
+
+  const niceDate = now.toLocaleDateString("en-IN", {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -82,29 +65,29 @@ export default async function DashboardPage() {
           <div className="row" style={{ justifyContent: "space-between" }}>
             <div className="pill">
               <span>✨</span>
-              <span className="muted">Quick Add</span>
+              <span className="muted">Quick Capture</span>
               <span className="kbd">fast</span>
             </div>
-            <span className="badge">30d view</span>
+            <span className="badge">This month</span>
           </div>
 
           <p className="muted" style={{ marginTop: 10, marginBottom: 10 }}>
-            Type like <span className="kbd">spent 250 groceries</span> or{" "}
-            <span className="kbd">income 5000 salary</span>.
+            One-line add: <span className="kbd">spent 250 groceries #food</span>
           </p>
 
-          <QuickAdd />
+          <QuickAddDrawer />
 
           <div className="sep" />
 
           <div className="row" style={{ justifyContent: "space-between" }}>
             <Link href="/transactions" className="pill">
-              <span>≡</span>
-              <span className="muted">View all transactions</span>
+              <span>≡</span><span className="muted">Transactions</span>
             </Link>
-            <Link href="/settings" className="pill">
-              <span>⚙︎</span>
-              <span className="muted">Settings</span>
+            <Link href="/analysis" className="pill">
+              <span>⬡</span><span className="muted">Analysis</span>
+            </Link>
+            <Link href="/budget" className="pill">
+              <span>◔</span><span className="muted">Budget</span>
             </Link>
           </div>
         </div>
@@ -116,53 +99,31 @@ export default async function DashboardPage() {
             <span className="kbd">INR</span>
           </div>
 
-          {monthlyBudget > 0 ? (
-            <div style={{ marginTop: 14 }}>
-              <ProgressRing value={spentThisMonth} total={monthlyBudget} />
-            </div>
-          ) : (
-            <div style={{ marginTop: 14 }} className="toast">
-              <span className="muted">Set a monthly budget in </span>
-              <Link href="/budget">Budget</Link>
-              <span className="muted"> to unlock the progress ring.</span>
-            </div>
-          )}
-
           <div style={{ marginTop: 14 }}>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <span className="muted">Income</span>
-              <span className="money" style={{ color: "var(--good)", fontWeight: 700 }}>
+              <span className="money" style={{ color: "var(--good)", fontWeight: 800 }}>
                 ₹{inr(income)}
               </span>
             </div>
-
             <div className="row" style={{ justifyContent: "space-between", marginTop: 10 }}>
               <span className="muted">Expense</span>
-              <span className="money" style={{ color: "var(--bad)", fontWeight: 700 }}>
+              <span className="money" style={{ color: "var(--bad)", fontWeight: 800 }}>
                 ₹{inr(expense)}
               </span>
             </div>
 
             <div className="sep" />
 
-            <div className="row" style={{ justifyContent: "space-between" }}>
-              <span className="muted">Net</span>
-              <span
-                className={`money ${net >= 0 ? "badgeGood" : "badgeBad"}`}
-                style={{
-                  fontWeight: 800,
-                  padding: "8px 12px",
-                  borderRadius: 999,
-                  border: "1px solid var(--stroke)",
-                }}
-              >
-                {net >= 0 ? "＋" : "－"}₹{inr(Math.abs(net))}
-              </span>
-            </div>
-
-            <p className="faint" style={{ marginTop: 12, fontSize: 12, lineHeight: 1.4 }}>
-              Tip: keep notes short. You can add accounts & categories later.
-            </p>
+            {monthlyBudget > 0 ? (
+              <ProgressRing value={expense} total={monthlyBudget} label="Budget used (this month)" />
+            ) : (
+              <div className="toast" style={{ marginTop: 10 }}>
+                <span className="muted">Set your budget in </span>
+                <Link href="/budget">Budget</Link>
+                <span className="muted"> to unlock the ring.</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -170,17 +131,14 @@ export default async function DashboardPage() {
       <div className="card cardPad" style={{ marginTop: 12 }}>
         <div className="row" style={{ justifyContent: "space-between" }}>
           <div className="pill">
-            <span>🧾</span>
-            <span className="muted">Recent</span>
+            <span>🧾</span><span className="muted">Recent</span>
           </div>
-          <Link href="/transactions" className="badge">
-            Open list →
-          </Link>
+          <Link href="/transactions" className="badge">Open list →</Link>
         </div>
 
         <div className="sep" />
 
-        {!txns || txns.length === 0 ? (
+        {(!txns || txns.length === 0) ? (
           <p className="muted">No transactions yet. Add your first one ✨</p>
         ) : (
           <div className="col" style={{ gap: 10 }}>
@@ -191,7 +149,10 @@ export default async function DashboardPage() {
                     {t.direction === "income" ? "IN" : "OUT"}
                   </span>
                   <div>
-                    <div style={{ fontWeight: 650 }}>{t.note}</div>
+                    <div style={{ fontWeight: 650 }}>
+                      {t.note}
+                      {t.category ? <span className="badge" style={{ marginLeft: 8 }}>#{t.category}</span> : null}
+                    </div>
                     <div className="faint" style={{ fontSize: 12 }}>
                       {new Date(t.created_at).toLocaleString("en-IN")}
                     </div>
@@ -200,10 +161,7 @@ export default async function DashboardPage() {
 
                 <div
                   className="money"
-                  style={{
-                    fontWeight: 800,
-                    color: t.direction === "income" ? "var(--good)" : "var(--bad)",
-                  }}
+                  style={{ fontWeight: 800, color: t.direction === "income" ? "var(--good)" : "var(--bad)" }}
                 >
                   {t.direction === "income" ? "+" : "-"}₹{inr(Number(t.amount ?? 0))}
                 </div>
