@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { currencySymbol, type CurrencyCode } from "@/lib/currency";
+import { currencySymbol, isCurrencyCode, type CurrencyCode } from "@/lib/currency";
 
 export function useCurrencySymbol() {
   const supabase = createSupabaseBrowserClient();
@@ -20,7 +20,8 @@ export function useCurrencySymbol() {
         .eq("id", u.user.id)
         .maybeSingle();
 
-      const c = (data?.currency_code ?? "INR") as CurrencyCode;
+      const raw = data?.currency_code;
+      const c: CurrencyCode = isCurrencyCode(raw) ? raw : "INR";
       setCode(c);
       setSym(currencySymbol(c));
     })();

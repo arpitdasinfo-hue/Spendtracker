@@ -1,17 +1,26 @@
 "use client";
 
+import type { CurrencyCode } from "@/lib/currency";
+import { formatMoney } from "@/lib/money";
+
 export default function ProgressRing({
   value,
   total,
   label,
   symbol = "₹",
+  currencyCode,
 }: {
   value: number;
   total: number;
   label?: string;
   symbol?: string;
+  currencyCode?: CurrencyCode;
 }) {
   const pct = total > 0 ? Math.min(100, Math.max(0, (value / total) * 100)) : 0;
+  const fmt = (n: number) =>
+    currencyCode
+      ? formatMoney(n, currencyCode, "en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+      : `${symbol}${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
   return (
     <div className="row" style={{ gap: 14, alignItems: "center" }}>
@@ -51,12 +60,10 @@ export default function ProgressRing({
           {label ?? "Monthly budget used"}
         </div>
         <div className="money" style={{ fontWeight: 850, marginTop: 6 }}>
-          {symbol}{value.toLocaleString("en-IN", { maximumFractionDigits: 0 })} / {symbol}
-          {total.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+          {fmt(value)} / {fmt(total)}
         </div>
         <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
-          Remaining: {symbol}
-          {Math.max(0, total - value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+          Remaining: {fmt(Math.max(0, total - value))}
         </div>
       </div>
     </div>

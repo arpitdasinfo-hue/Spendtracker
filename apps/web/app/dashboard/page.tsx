@@ -3,12 +3,9 @@ import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import QuickAddDrawer from "@/components/QuickAddDrawer";
 import ProgressRing from "@/components/ProgressRing";
-import { currencySymbol } from "@/lib/currency";
+import { currencySymbol, isCurrencyCode, type CurrencyCode } from "@/lib/currency";
+import { formatMoney } from "@/lib/money";
 import ProfileSetup from "@/components/ProfileSetup";
-
-function fmt(sym: string, n: number) {
-  return `${sym}${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
-}
 
 function niceName(fullName: string | null | undefined, email: string | null | undefined) {
   if (fullName && fullName.trim()) return fullName.trim();
@@ -27,7 +24,8 @@ export default async function DashboardPage() {
     .eq("id", data.user.id)
     .maybeSingle();
 
-  const sym = currencySymbol(prof?.currency_code ?? "INR");
+  const currencyCode: CurrencyCode = isCurrencyCode(prof?.currency_code) ? prof.currency_code : "INR";
+  const sym = currencySymbol(currencyCode);
   const name = niceName(prof?.full_name, data.user.email);
 
   const now = new Date();
@@ -126,20 +124,26 @@ export default async function DashboardPage() {
             <div className="row" style={{ justifyContent: "space-between" }}>
               <span className="muted">Income</span>
               <span className="money" style={{ color: "var(--good)", fontWeight: 800 }}>
-                {fmt(sym, income)}
+                {formatMoney(income, currencyCode, "en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
               </span>
             </div>
             <div className="row" style={{ justifyContent: "space-between", marginTop: 10 }}>
               <span className="muted">Expense</span>
               <span className="money" style={{ color: "var(--bad)", fontWeight: 800 }}>
-                {fmt(sym, expense)}
+                {formatMoney(expense, currencyCode, "en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
               </span>
             </div>
 
             <div className="sep" />
 
             {monthlyBudget > 0 ? (
-              <ProgressRing value={expense} total={monthlyBudget} label="Budget used (this month)" symbol={sym} />
+              <ProgressRing
+                value={expense}
+                total={monthlyBudget}
+                label="Budget used (this month)"
+                symbol={sym}
+                currencyCode={currencyCode}
+              />
             ) : (
               <div className="toast" style={{ marginTop: 10 }}>
                 <span className="muted">Set your budget in </span>

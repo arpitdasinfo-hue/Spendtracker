@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useCurrencySymbol } from "@/lib/useCurrency";
+import { formatMoney } from "@/lib/money";
 import {
   ResponsiveContainer,
   PieChart,
@@ -46,7 +47,7 @@ function sum(txns: Txn[], dir: "expense" | "income") {
 export default function AnalysisPage() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
-  const { sym } = useCurrencySymbol();
+  const { sym, code } = useCurrencySymbol();
 
   const [items, setItems] = useState<Txn[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
@@ -151,7 +152,8 @@ export default function AnalysisPage() {
     };
   }, [items]);
 
-  const money = (n: number) => `${sym}${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+  const money = (n: number) =>
+    formatMoney(n, code, "en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
   return (
     <main className="container">
@@ -236,7 +238,7 @@ export default function AnalysisPage() {
               <BarChart data={metrics.trend}>
                 <CartesianGrid strokeOpacity={0.15} />
                 <XAxis dataKey="month" />
-                <YAxis tickFormatter={(v) => `${sym}${v}`} />
+                <YAxis tickFormatter={(v) => money(Number(v ?? 0))} />
                 <Tooltip formatter={(value: any) => money(Number(value ?? 0))} />
                 <Bar dataKey="expense" />
                 <Bar dataKey="income" />
@@ -253,7 +255,7 @@ export default function AnalysisPage() {
               <LineChart data={metrics.weekly}>
                 <CartesianGrid strokeOpacity={0.15} />
                 <XAxis dataKey="week" />
-                <YAxis tickFormatter={(v) => `${sym}${v}`} />
+                <YAxis tickFormatter={(v) => money(Number(v ?? 0))} />
                 <Tooltip formatter={(value: any) => money(Number(value ?? 0))} />
                 <Line type="monotone" dataKey="expense" dot={false} />
               </LineChart>

@@ -3,9 +3,15 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { currencySymbol, type CurrencyCode } from "@/lib/currency";
+import {
+  CURRENCIES,
+  currencyLabel,
+  currencySymbol,
+  isCurrencyCode,
+  type CurrencyCode,
+} from "@/lib/currency";
 
-const OPTIONS: CurrencyCode[] = ["INR", "USD", "GBP", "AED"];
+const OPTIONS: CurrencyCode[] = CURRENCIES.map((c) => c.code);
 
 export default function CurrencyConfigPage() {
   const supabase = createSupabaseBrowserClient();
@@ -25,7 +31,7 @@ export default function CurrencyConfigPage() {
         .eq("id", u.user.id)
         .maybeSingle();
 
-      if (!error && data?.currency_code) setCurrent(data.currency_code as CurrencyCode);
+      if (!error && isCurrencyCode(data?.currency_code)) setCurrent(data.currency_code);
     })();
   }, [router]);
 
@@ -49,7 +55,7 @@ export default function CurrencyConfigPage() {
   return (
     <main className="container">
       <h1 className="h1">Config · Currency</h1>
-      <p className="sub">Choose a currency symbol (no words).</p>
+      <p className="sub">Choose your display currency (code + symbol).</p>
 
       {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
 
@@ -70,9 +76,11 @@ export default function CurrencyConfigPage() {
               onClick={() => setCurrency(c)}
               type="button"
               style={{ padding: 16, fontSize: 18, fontWeight: 850 }}
-              title={c}
+              title={currencyLabel(c)}
+              aria-label={currencyLabel(c)}
             >
-              {currencySymbol(c)}
+              <span>{currencySymbol(c)}</span>
+              <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.85 }}>{c}</span>
             </button>
           ))}
         </div>

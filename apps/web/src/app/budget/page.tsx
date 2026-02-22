@@ -14,7 +14,7 @@ type Txn = { direction: "expense" | "income"; amount: number | null; category_id
 export default function BudgetPage() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
-  const { sym } = useCurrencySymbol();
+  const { sym, code } = useCurrencySymbol();
 
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -119,7 +119,13 @@ export default function BudgetPage() {
 
       <div className="card cardPad" style={{ marginTop: 14 }}>
         {monthlyBudget > 0 ? (
-          <ProgressRing value={spentThisMonth} total={monthlyBudget} symbol={sym} label="Monthly budget used (this month)" />
+          <ProgressRing
+            value={spentThisMonth}
+            total={monthlyBudget}
+            symbol={sym}
+            currencyCode={code}
+            label="Monthly budget used (this month)"
+          />
         ) : (
           <div className="toast">
             <span className="muted">No monthly budget set. </span>
@@ -149,6 +155,7 @@ export default function BudgetPage() {
                 value={r.spent}
                 total={r.total}
                 symbol={sym}
+                currencyCode={code}
               />
             ))}
           </div>

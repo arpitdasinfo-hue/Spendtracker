@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useCurrencySymbol } from "@/lib/useCurrency";
+import { formatMoney } from "@/lib/money";
 import TxnFilterModal, { TxnFilters, countActiveFilters } from "@/components/TxnFilterModal";
 
 type Txn = {
@@ -82,7 +83,7 @@ const PAGE_SIZE = 50;
 export default function TransactionsPage() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
-  const { sym } = useCurrencySymbol();
+  const { sym, code } = useCurrencySymbol();
 
   const [q, setQ] = useState("");
   const [items, setItems] = useState<Txn[]>([]);
@@ -429,7 +430,7 @@ export default function TransactionsPage() {
 
                     <div style={{ textAlign: "right" }}>
                       <div className="money" style={{ fontWeight: 800, color: t.direction === "income" ? "var(--good)" : "var(--bad)" }}>
-                        {t.direction === "income" ? "+" : "-"}{sym}{Number(t.amount ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                        {t.direction === "income" ? "+" : "-"}{formatMoney(Number(t.amount ?? 0), code)}
                       </div>
                     </div>
                   </div>

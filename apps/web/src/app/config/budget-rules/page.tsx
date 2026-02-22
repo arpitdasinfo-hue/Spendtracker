@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useCurrencySymbol } from "@/lib/useCurrency";
+import { formatMoney } from "@/lib/money";
 
 type Cat = { id: string; name: string };
 type CatBudgetRow = { id: string; category_id: string; monthly_budget: number; updated_at?: string };
@@ -11,7 +12,7 @@ type CatBudgetRow = { id: string; category_id: string; monthly_budget: number; u
 export default function BudgetRulesPage() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
-  const { sym } = useCurrencySymbol();
+  const { sym, code } = useCurrencySymbol();
 
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -72,7 +73,12 @@ export default function BudgetRulesPage() {
     if (Number.isNaN(n) || n < 0) return setMsg("Enter a valid monthly budget.");
 
     if (allocated > n) {
-      return setMsg(`Allocated category budgets exceed monthly budget (${sym}${allocated.toFixed(0)} > ${sym}${n.toFixed(0)}).`);
+      return setMsg(
+        `Allocated category budgets exceed monthly budget (${formatMoney(allocated, code, "en-IN", {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
+        })} > ${formatMoney(n, code, "en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}).`
+      );
     }
 
     const { error } = await supabase.from("budgets").upsert({
@@ -101,7 +107,15 @@ export default function BudgetRulesPage() {
     const nextAllocated = allocated - Number(existing?.monthly_budget ?? 0) + n;
 
     if (savedMonthlyBudget > 0 && nextAllocated > savedMonthlyBudget) {
-      return setMsg(`Total category budgets would exceed monthly (${sym}${nextAllocated.toFixed(0)} > ${sym}${savedMonthlyBudget.toFixed(0)}).`);
+      return setMsg(
+        `Total category budgets would exceed monthly (${formatMoney(nextAllocated, code, "en-IN", {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
+        })} > ${formatMoney(savedMonthlyBudget, code, "en-IN", {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
+        })}).`
+      );
     }
 
     const { error } = await supabase.from("category_budgets").upsert({
@@ -149,7 +163,9 @@ export default function BudgetRulesPage() {
         <div className="sep" />
         <div className="row" style={{ justifyContent: "space-between" }}>
           <span className="muted">Allocated to categories</span>
-          <span className="money" style={{ fontWeight: 800 }}>{sym}{allocated.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</span>
+          <span className="money" style={{ fontWeight: 800 }}>
+            {formatMoney(allocated, code, "en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+          </span>
         </div>
 
         <label className="muted" style={{ marginTop: 12, display: "block" }}>Monthly budget ({sym})</label>
@@ -191,7 +207,10 @@ export default function BudgetRulesPage() {
                   <div>
                     <div style={{ fontWeight: 800 }}>{name}</div>
                     <div className="faint" style={{ fontSize: 12 }}>
-                      Budget: {sym}{Number(c.monthly_budget ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                      Budget: {formatMoney(Number(c.monthly_budget ?? 0), code, "en-IN", {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 0,
+                      })}
                     </div>
                   </div>
                   <button className="btn btnDanger" onClick={() => deleteCategoryBudget(c.id)}>Delete</button>

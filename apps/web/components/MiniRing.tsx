@@ -1,18 +1,27 @@
 "use client";
 
+import type { CurrencyCode } from "@/lib/currency";
+import { formatMoney } from "@/lib/money";
+
 export default function MiniRing({
   value,
   total,
   title,
   symbol = "₹",
+  currencyCode,
 }: {
   value: number;
   total: number;
   title: string;
   symbol?: string;
+  currencyCode?: CurrencyCode;
 }) {
   const pct = total > 0 ? Math.min(100, Math.max(0, (value / total) * 100)) : 0;
   const danger = pct >= 90;
+  const fmt = (n: number) =>
+    currencyCode
+      ? formatMoney(n, currencyCode, "en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+      : `${symbol}${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
   return (
     <div className="card" style={{ padding: 12, borderRadius: 18 }}>
@@ -20,8 +29,7 @@ export default function MiniRing({
         <div>
           <div style={{ fontWeight: 750 }}>{title}</div>
           <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
-            {symbol}{value.toLocaleString("en-IN", { maximumFractionDigits: 0 })} / {symbol}
-            {total.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+            {fmt(value)} / {fmt(total)}
           </div>
         </div>
         <span className={`badge ${danger ? "badgeBad" : "badgeGood"}`}>{Math.round(pct)}%</span>
