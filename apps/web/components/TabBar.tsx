@@ -13,7 +13,6 @@ export default function TabBar() {
 
   const tabs = [
     { href: "/dashboard", label: "Home", icon: "⌂" },
-    { href: "/add", label: "Add", icon: "＋" },
     { href: "/transactions", label: "Txns", icon: "≡" },
     { href: "/analysis", label: "Analysis", icon: "⬡" },
     { href: "/budget", label: "Budget", icon: "◔" },

@@ -9,6 +9,12 @@ function fmt(sym: string, n: number) {
   return `${sym}${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
 
+function niceName(fullName: string | null | undefined, email: string | null | undefined) {
+  if (fullName && fullName.trim()) return fullName.trim();
+  if (email && email.includes("@")) return email.split("@")[0];
+  return "there";
+}
+
 export default async function DashboardPage() {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
@@ -16,11 +22,12 @@ export default async function DashboardPage() {
 
   const { data: prof } = await supabase
     .from("profiles")
-    .select("currency_code")
+    .select("full_name, currency_code")
     .eq("id", data.user.id)
     .maybeSingle();
 
   const sym = currencySymbol(prof?.currency_code ?? "INR");
+  const name = niceName(prof?.full_name, data.user.email);
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -56,9 +63,9 @@ export default async function DashboardPage() {
 
   return (
     <main className="container">
-      <div className="row" style={{ justifyContent: "space-between" }}>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <h1 className="h1">Home</h1>
+          <h1 className="h1">Hello, {name} 👋</h1>
           <p className="sub">
             {niceDate} · <span className="muted">{data.user.email}</span>
           </p>
@@ -81,7 +88,7 @@ export default async function DashboardPage() {
           </div>
 
           <p className="muted" style={{ marginTop: 10, marginBottom: 10 }}>
-            Quick add using amount + note + category.
+            Fast entry: amount + note + category.
           </p>
 
           <QuickAddDrawer />
@@ -97,6 +104,9 @@ export default async function DashboardPage() {
             </Link>
             <Link href="/budget" className="pill">
               <span>◔</span><span className="muted">Budget</span>
+            </Link>
+            <Link href="/config" className="pill">
+              <span>⚙︎</span><span className="muted">Config</span>
             </Link>
           </div>
         </div>
@@ -135,6 +145,46 @@ export default async function DashboardPage() {
             )}
           </div>
         </div>
+      </div>
+
+      <div className="card cardPad" style={{ marginTop: 12 }}>
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <div className="pill">
+            <span>🧾</span><span className="muted">Recent</span>
+          </div>
+          <Link href="/transactions" className="badge">Open list →</Link>
+        </div>
+
+        <div className="sep" />
+
+        {(!txns || txns.length === 0) ? (
+          <p className="muted">No transactions yet. Add your first one ✨</p>
+        ) : (
+          <div className="col" style={{ gap: 10 }}>
+            {txns.map((t) => (
+              <div key={t.id} className="row" style={{ justifyContent: "space-between" }}>
+                <div className="row" style={{ gap: 10 }}>
+                  <span className={`badge ${t.direction === "income" ? "badgeGood" : "badgeBad"}`}>
+                    {t.direction === "income" ? "↘ IN" : "↗ OUT"}
+                  </span>
+                  <div>
+                    <div style={{ fontWeight: 650 }}>{t.note}</div>
+                    <div className="faint" style={{ fontSize: 12 }}>
+                      {new Date(t.created_at).toLocaleString("en-IN")}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  className="money"
+                  style={{ fontWeight: 800, color: t.direction === "income" ? "var(--good)" : "var(--bad)" }}
+                >
+                  {t.direction === "income" ? "+" : "-"}{sym}{Number(t.amount ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </main>
   );
