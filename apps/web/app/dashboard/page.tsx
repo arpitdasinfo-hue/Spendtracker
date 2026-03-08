@@ -132,7 +132,7 @@ export default async function DashboardPage() {
 
           <div className="sep" />
 
-          <div className="row" style={{ justifyContent: "space-between" }}>
+          <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <Link href="/transactions" className="pill">
               <span>≡</span><span className="muted">Transactions</span>
             </Link>
@@ -142,8 +142,8 @@ export default async function DashboardPage() {
             <Link href="/budget" className="pill">
               <span>◔</span><span className="muted">Budget</span>
             </Link>
-            <Link href="/config" className="pill">
-              <span>⚙︎</span><span className="muted">Config</span>
+            <Link href="/recurring" className="pill">
+              <span>↺</span><span className="muted">Recurring</span>
             </Link>
           </div>
         </div>

@@ -26,6 +26,7 @@ export default function AddPage() {
 
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [savingRecurring, setSavingRecurring] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -49,6 +50,33 @@ export default function AddPage() {
       if (!mErr) setMethods((m ?? []).map((x: any) => ({ id: x.id, label: x.name, sublabel: `${x.payment_type ?? ""} · ${x.channel}`.trim() })));
     })();
   }, [router]);
+
+  async function saveAsRecurring() {
+    setMsg(null);
+    setSavingRecurring(true);
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) { setSavingRecurring(false); router.replace("/login"); return; }
+
+    const amt = Number(amount);
+    if (!amt || Number.isNaN(amt) || amt <= 0) {
+      setSavingRecurring(false);
+      return setMsg(`Enter a valid amount (e.g., ${sym}250).`);
+    }
+
+    const { error } = await supabase.from("recurring_templates").insert({
+      user_id: u.user.id,
+      direction,
+      amount: amt,
+      note: (note || (direction === "expense" ? "expense" : "income")).slice(0, 80),
+      category_id: categoryId,
+      payment_method_id: paymentMethodId,
+      tag,
+    });
+
+    setSavingRecurring(false);
+    if (error) return setMsg(error.message);
+    setMsg("Saved as recurring template!");
+  }
 
   async function save() {
     setMsg(null);
@@ -139,13 +167,23 @@ export default function AddPage() {
         <TagChips value={tag} onChange={setTag} />
 
         <div className="row" style={{ marginTop: 14 }}>
-          <button className="btn btnPrimary" style={{ flex: 1 }} onClick={save} disabled={loading}>
+          <button className="btn btnPrimary" style={{ flex: 1 }} onClick={save} disabled={loading || savingRecurring}>
             {loading ? "Saving…" : "Save"}
           </button>
-          <button className="btn" style={{ flex: 1 }} onClick={() => router.replace("/dashboard")} disabled={loading} type="button">
+          <button className="btn" style={{ flex: 1 }} onClick={() => router.replace("/dashboard")} disabled={loading || savingRecurring} type="button">
             Cancel
           </button>
         </div>
+
+        <button
+          className="btn"
+          style={{ width: "100%", marginTop: 8, fontSize: 13, color: "var(--muted)" }}
+          onClick={saveAsRecurring}
+          disabled={loading || savingRecurring}
+          type="button"
+        >
+          {savingRecurring ? "Saving template…" : "Save as Recurring Template"}
+        </button>
 
         {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
       </div>

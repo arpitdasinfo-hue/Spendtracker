@@ -17,14 +17,22 @@ import {
   CartesianGrid,
   LineChart,
   Line,
+  Legend,
 } from "recharts";
 
 type Txn = {
   direction: "expense" | "income";
   amount: number | null;
   category: string | null;
+  category_id: string | null;
   created_at: string;
 };
+
+type CatBudget = { category_id: string; monthly_budget: number };
+type Cat = { id: string; name: string };
+
+const MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
 function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -50,28 +58,42 @@ export default function AnalysisPage() {
   const { sym, code } = useCurrencySymbol();
 
   const [items, setItems] = useState<Txn[]>([]);
+  const [catBudgets, setCatBudgets] = useState<CatBudget[]>([]);
+  const [cats, setCats] = useState<Cat[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       const { data: u } = await supabase.auth.getUser();
-      if (!u.user) {
-        router.replace("/login");
-        return;
-      }
+      if (!u.user) { router.replace("/login"); return; }
 
-      const since = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
+      // 400 days covers 13+ months for YoY
+      const since = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString();
 
       const { data, error } = await supabase
         .from("transactions")
-        .select("direction, amount, category, created_at")
+        .select("direction, amount, category, category_id, created_at")
         .gte("created_at", since)
         .order("created_at", { ascending: true });
 
       if (error) setMsg(error.message);
       setItems((data ?? []) as Txn[]);
+
+      const { data: cb } = await supabase
+        .from("category_budgets")
+        .select("category_id, monthly_budget");
+      setCatBudgets((cb ?? []) as CatBudget[]);
+
+      const { data: cdata } = await supabase
+        .from("categories")
+        .select("id, name")
+        .eq("is_active", true);
+      setCats((cdata ?? []) as Cat[]);
     })();
   }, [router]);
+
+  const money = (n: number) =>
+    formatMoney(n, code, "en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
   const metrics = useMemo(() => {
     const now = new Date();
@@ -91,7 +113,6 @@ export default function AnalysisPage() {
 
     const thisWeek = items.filter((t) => inRange(t, week0Start, now));
     const lastWeek = items.filter((t) => inRange(t, week1Start, week0Start));
-
     const thisMonth = items.filter((t) => inRange(t, month0Start, now));
     const lastMonth = items.filter((t) => inRange(t, month1Start, month0Start));
 
@@ -101,7 +122,7 @@ export default function AnalysisPage() {
     const catMap = new Map<string, number>();
     for (const t of thisMonth) {
       if (t.direction !== "expense") continue;
-      const key = (t.category?.trim() || "Uncategorized");
+      const key = t.category?.trim() || "Uncategorized";
       catMap.set(key, (catMap.get(key) ?? 0) + Number(t.amount ?? 0));
     }
     const categoryData = Array.from(catMap.entries())
@@ -115,7 +136,6 @@ export default function AnalysisPage() {
       const a = startOfMonth(d);
       const b = new Date(a);
       b.setMonth(b.getMonth() + 1);
-
       const bucket = items.filter((t) => inRange(t, a, b));
       trend.push({
         month: a.toLocaleDateString("en-IN", { month: "short" }),
@@ -131,13 +151,27 @@ export default function AnalysisPage() {
       a.setDate(a.getDate() - i * 7);
       const b = new Date(a);
       b.setDate(b.getDate() + 7);
-
       const bucket = items.filter((t) => inRange(t, a, b));
       weekly.push({
         week: `${a.getDate()}/${a.getMonth() + 1}`,
         expense: sum(bucket, "expense"),
       });
     }
+
+    // Year-over-Year data
+    const yoy = MONTH_ABBR.map((month, i) => {
+      const tyStart = new Date(now.getFullYear(), i, 1);
+      const tyEnd   = new Date(now.getFullYear(), i + 1, 1);
+      const lyStart = new Date(now.getFullYear() - 1, i, 1);
+      const lyEnd   = new Date(now.getFullYear() - 1, i + 1, 1);
+      const thisYear = items
+        .filter(t => t.direction === "expense" && inRange(t, tyStart, tyEnd))
+        .reduce((s, t) => s + Number(t.amount ?? 0), 0);
+      const lastYear = items
+        .filter(t => t.direction === "expense" && inRange(t, lyStart, lyEnd))
+        .reduce((s, t) => s + Number(t.amount ?? 0), 0);
+      return { month, thisYear, lastYear };
+    });
 
     return {
       thisWeekExpense: sum(thisWeek, "expense"),
@@ -149,25 +183,171 @@ export default function AnalysisPage() {
       categoryData,
       trend,
       weekly,
+      yoy,
     };
   }, [items]);
 
-  const money = (n: number) =>
-    formatMoney(n, code, "en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const insights = useMemo(() => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    const thisMonthExpenses = items.filter(
+      t => t.direction === "expense" && new Date(t.created_at) >= monthStart
+    );
+    const lastMonthExpenses = items.filter(
+      t => t.direction === "expense" &&
+        new Date(t.created_at) >= lastMonthStart &&
+        new Date(t.created_at) < monthStart
+    );
+
+    // Over-budget categories
+    const catBudgetMap = new Map(catBudgets.map(b => [b.category_id, Number(b.monthly_budget)]));
+    const catNameMap = new Map(cats.map(c => [c.id, c.name]));
+    const catSpend = new Map<string, number>();
+    for (const t of thisMonthExpenses) {
+      if (t.category_id) catSpend.set(t.category_id, (catSpend.get(t.category_id) ?? 0) + Number(t.amount ?? 0));
+    }
+    const overBudget = Array.from(catSpend.entries())
+      .filter(([id, spent]) => catBudgetMap.has(id) && spent > (catBudgetMap.get(id) ?? Infinity))
+      .map(([id]) => catNameMap.get(id) ?? "Unknown");
+
+    // Top spend day of week
+    const dayTotals = new Array(7).fill(0);
+    for (const t of items) {
+      if (t.direction !== "expense") continue;
+      dayTotals[new Date(t.created_at).getDay()] += Number(t.amount ?? 0);
+    }
+    const topDayIdx = dayTotals.indexOf(Math.max(...dayTotals));
+    const topDay = DAY_NAMES[topDayIdx];
+
+    // Biggest single expense this month
+    const biggest = thisMonthExpenses.length > 0
+      ? thisMonthExpenses.reduce((max, t) =>
+          Number(t.amount ?? 0) > Number(max.amount ?? 0) ? t : max
+        )
+      : null;
+
+    // Month-over-month % change
+    const thisTotal = thisMonthExpenses.reduce((s, t) => s + Number(t.amount ?? 0), 0);
+    const lastTotal = lastMonthExpenses.reduce((s, t) => s + Number(t.amount ?? 0), 0);
+    const momPct = lastTotal > 0 ? ((thisTotal - lastTotal) / lastTotal) * 100 : null;
+
+    return { overBudget, topDay, biggest, thisTotal, lastTotal, momPct };
+  }, [items, catBudgets, cats]);
 
   return (
     <main className="container">
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
           <h1 className="h1">Analysis</h1>
-          <p className="sub">Week-on-week, month-on-month and category charts.</p>
+          <p className="sub">Insights, trends and year-on-year breakdown.</p>
         </div>
-        <span className="badge">Last 120 days</span>
+        <span className="badge">Last 400 days</span>
       </div>
 
       {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
 
-      <div className="grid2" style={{ marginTop: 14 }}>
+      {/* ── Smart Insights ── */}
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          overflowX: "auto",
+          padding: "4px 0 8px",
+          marginTop: 14,
+          scrollbarWidth: "none",
+        }}
+      >
+        {/* MoM change */}
+        <div
+          className="card cardPad fadeUp"
+          style={{ minWidth: 160, flexShrink: 0, padding: "14px 16px" }}
+        >
+          <div style={{ fontSize: 22, marginBottom: 4 }}>
+            {insights.momPct === null ? "📊" : insights.momPct >= 0 ? "📈" : "📉"}
+          </div>
+          <div className="muted" style={{ fontSize: 11, fontWeight: 500 }}>Month vs last</div>
+          <div
+            className="money"
+            style={{
+              fontWeight: 800,
+              fontSize: 16,
+              marginTop: 4,
+              color: insights.momPct === null
+                ? "var(--text)"
+                : insights.momPct >= 0 ? "var(--badLight)" : "var(--goodLight)",
+            }}
+          >
+            {insights.momPct === null
+              ? "—"
+              : `${insights.momPct >= 0 ? "+" : ""}${insights.momPct.toFixed(1)}%`}
+          </div>
+          <div className="faint" style={{ fontSize: 11, marginTop: 3 }}>
+            vs {money(insights.lastTotal)}
+          </div>
+        </div>
+
+        {/* Top spend day */}
+        <div
+          className="card cardPad fadeUp"
+          style={{ minWidth: 150, flexShrink: 0, padding: "14px 16px", animationDelay: "60ms" }}
+        >
+          <div style={{ fontSize: 22, marginBottom: 4 }}>📅</div>
+          <div className="muted" style={{ fontSize: 11, fontWeight: 500 }}>Top spend day</div>
+          <div className="money" style={{ fontWeight: 800, fontSize: 16, marginTop: 4 }}>
+            {insights.topDay}
+          </div>
+          <div className="faint" style={{ fontSize: 11, marginTop: 3 }}>across all time</div>
+        </div>
+
+        {/* Biggest expense */}
+        <div
+          className="card cardPad fadeUp"
+          style={{ minWidth: 172, flexShrink: 0, padding: "14px 16px", animationDelay: "120ms" }}
+        >
+          <div style={{ fontSize: 22, marginBottom: 4 }}>🔥</div>
+          <div className="muted" style={{ fontSize: 11, fontWeight: 500 }}>Biggest this month</div>
+          <div className="money" style={{ fontWeight: 800, fontSize: 16, marginTop: 4 }}>
+            {insights.biggest ? money(Number(insights.biggest.amount ?? 0)) : "—"}
+          </div>
+          <div
+            className="faint"
+            style={{ fontSize: 11, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}
+          >
+            {insights.biggest?.category ?? "—"}
+          </div>
+        </div>
+
+        {/* Over-budget categories */}
+        <div
+          className="card cardPad fadeUp"
+          style={{ minWidth: 172, flexShrink: 0, padding: "14px 16px", animationDelay: "180ms" }}
+        >
+          <div style={{ fontSize: 22, marginBottom: 4 }}>🚨</div>
+          <div className="muted" style={{ fontSize: 11, fontWeight: 500 }}>Over-budget</div>
+          <div
+            className="money"
+            style={{
+              fontWeight: 800,
+              fontSize: 16,
+              marginTop: 4,
+              color: insights.overBudget.length > 0 ? "var(--badLight)" : "var(--goodLight)",
+            }}
+          >
+            {insights.overBudget.length > 0 ? `${insights.overBudget.length} category` : "All clear"}
+          </div>
+          <div
+            className="faint"
+            style={{ fontSize: 11, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}
+          >
+            {insights.overBudget.length > 0 ? insights.overBudget.join(", ") : "within budget"}
+          </div>
+        </div>
+      </div>
+
+      {/* ── WoW + MoM cards ── */}
+      <div className="grid2" style={{ marginTop: 4 }}>
         <div className="card cardPad">
           <div className="pill"><span>📆</span><span className="muted">Week on Week</span></div>
           <div className="sep" />
@@ -209,6 +389,7 @@ export default function AnalysisPage() {
         </div>
       </div>
 
+      {/* ── Category Pie ── */}
       <div className="card cardPad" style={{ marginTop: 12 }}>
         <div className="row" style={{ justifyContent: "space-between" }}>
           <div className="pill"><span>🧩</span><span className="muted">Top Categories (This Month)</span></div>
@@ -229,6 +410,7 @@ export default function AnalysisPage() {
         )}
       </div>
 
+      {/* ── 6-month trend + 8-week line ── */}
       <div className="grid2" style={{ marginTop: 12 }}>
         <div className="card cardPad">
           <div className="pill"><span>📊</span><span className="muted">Month Trend (6 months)</span></div>
@@ -237,11 +419,14 @@ export default function AnalysisPage() {
             <ResponsiveContainer>
               <BarChart data={metrics.trend}>
                 <CartesianGrid strokeOpacity={0.15} />
-                <XAxis dataKey="month" />
-                <YAxis tickFormatter={(v) => money(Number(v ?? 0))} />
-                <Tooltip formatter={(value: any) => money(Number(value ?? 0))} />
-                <Bar dataKey="expense" />
-                <Bar dataKey="income" />
+                <XAxis dataKey="month" tick={{ fill: "var(--muted)", fontSize: 11 }} />
+                <YAxis tickFormatter={(v) => money(Number(v ?? 0))} tick={{ fill: "var(--muted)", fontSize: 10 }} width={72} />
+                <Tooltip
+                  formatter={(value: any) => money(Number(value ?? 0))}
+                  contentStyle={{ background: "var(--cardSolid)", border: "1px solid var(--stroke)", borderRadius: 12 }}
+                />
+                <Bar dataKey="expense" fill="rgba(244,63,94,.75)" radius={[4,4,0,0]} name="Expense" />
+                <Bar dataKey="income"  fill="rgba(34,211,238,.75)" radius={[4,4,0,0]} name="Income" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -254,13 +439,45 @@ export default function AnalysisPage() {
             <ResponsiveContainer>
               <LineChart data={metrics.weekly}>
                 <CartesianGrid strokeOpacity={0.15} />
-                <XAxis dataKey="week" />
-                <YAxis tickFormatter={(v) => money(Number(v ?? 0))} />
-                <Tooltip formatter={(value: any) => money(Number(value ?? 0))} />
-                <Line type="monotone" dataKey="expense" dot={false} />
+                <XAxis dataKey="week" tick={{ fill: "var(--muted)", fontSize: 11 }} />
+                <YAxis tickFormatter={(v) => money(Number(v ?? 0))} tick={{ fill: "var(--muted)", fontSize: 10 }} width={72} />
+                <Tooltip
+                  formatter={(value: any) => money(Number(value ?? 0))}
+                  contentStyle={{ background: "var(--cardSolid)", border: "1px solid var(--stroke)", borderRadius: 12 }}
+                />
+                <Line type="monotone" dataKey="expense" dot={false} stroke="rgba(244,63,94,.85)" strokeWidth={2} />
               </LineChart>
             </ResponsiveContainer>
           </div>
+        </div>
+      </div>
+
+      {/* ── Year on Year ── */}
+      <div className="card cardPad" style={{ marginTop: 12 }}>
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <div className="pill"><span>📅</span><span className="muted">Year on Year · Expenses</span></div>
+          <span className="badge">{new Date().getFullYear() - 1} vs {new Date().getFullYear()}</span>
+        </div>
+        <div className="sep" />
+        <div style={{ width: "100%", height: 320 }}>
+          <ResponsiveContainer>
+            <BarChart data={metrics.yoy} barGap={2}>
+              <CartesianGrid strokeOpacity={0.15} />
+              <XAxis dataKey="month" tick={{ fill: "var(--muted)", fontSize: 11 }} />
+              <YAxis tickFormatter={(v) => money(Number(v ?? 0))} tick={{ fill: "var(--muted)", fontSize: 10 }} width={72} />
+              <Tooltip
+                formatter={(value: any) => money(Number(value ?? 0))}
+                contentStyle={{ background: "var(--cardSolid)", border: "1px solid var(--stroke)", borderRadius: 12 }}
+              />
+              <Legend
+                formatter={(value) => (
+                  <span style={{ color: "var(--muted)", fontSize: 12 }}>{value}</span>
+                )}
+              />
+              <Bar dataKey="lastYear"  fill="rgba(124,58,237,.55)" radius={[4,4,0,0]} name={String(new Date().getFullYear() - 1)} />
+              <Bar dataKey="thisYear"  fill="rgba(34,211,238,.80)" radius={[4,4,0,0]} name={String(new Date().getFullYear())} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
     </main>

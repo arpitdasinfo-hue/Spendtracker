@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import ProgressRing from "@/components/ProgressRing";
 import MiniRing from "@/components/MiniRing";
@@ -110,9 +111,14 @@ export default function BudgetPage() {
           <p className="sub">Progress only. Edit rules in Config.</p>
         </div>
 
-        <button className="btn btnPrimary" onClick={() => router.push("/config/budget-rules")} type="button">
-          Edit rules
-        </button>
+        <div className="row" style={{ gap: 8 }}>
+          <Link href="/goals" className="btn">
+            Goals →
+          </Link>
+          <button className="btn btnPrimary" onClick={() => router.push("/config/budget-rules")} type="button">
+            Edit rules
+          </button>
+        </div>
       </div>
 
       {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
