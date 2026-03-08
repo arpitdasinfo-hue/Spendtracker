@@ -7,10 +7,26 @@ export default async function SettingsPage() {
   if (!data.user) redirect("/login");
 
   return (
-    <main style={{ padding: 24 }}>
-      <h1>Settings</h1>
-      <p>Copy this User ID into your iPhone Shortcut:</p>
-      <pre style={{ padding: 12, background: "#eee" }}>{data.user.id}</pre>
+    <main className="container">
+      <h1 className="h1">Settings</h1>
+      <p className="sub">Your account details and integration info.</p>
+
+      <div className="card cardPad" style={{ marginTop: 14 }}>
+        <p className="muted" style={{ margin: "0 0 8px" }}>User ID (for iPhone Shortcut)</p>
+        <pre style={{
+          background: "rgba(255,255,255,.06)",
+          border: "1px solid rgba(255,255,255,.1)",
+          borderRadius: 10,
+          padding: "12px 14px",
+          margin: 0,
+          fontSize: 13,
+          color: "var(--neonB)",
+          overflowX: "auto",
+          wordBreak: "break-all",
+        }}>
+          {data.user.id}
+        </pre>
+      </div>
     </main>
   );
 }

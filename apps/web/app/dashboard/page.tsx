@@ -78,6 +78,41 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
+      {/* Net balance strip */}
+      {(income > 0 || expense > 0) && (() => {
+        const net = income - expense;
+        const isPositive = net >= 0;
+        return (
+          <div
+            className="card"
+            style={{
+              marginTop: 14,
+              padding: "13px 18px",
+              borderRadius: 14,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              borderColor: isPositive ? "rgba(16,185,129,.25)" : "rgba(244,63,94,.25)",
+            }}
+          >
+            <span className="muted" style={{ fontSize: 13, fontWeight: 500 }}>
+              Net this month
+            </span>
+            <span
+              className="money"
+              style={{
+                fontWeight: 800,
+                fontSize: 16,
+                color: isPositive ? "var(--goodLight)" : "var(--badLight)",
+              }}
+            >
+              {isPositive ? "+" : ""}
+              {formatMoney(net, currencyCode, "en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            </span>
+          </div>
+        );
+      })()}
+
       <div className="grid2" style={{ marginTop: 14 }}>
         <div className="card cardPad">
           <div className="row" style={{ justifyContent: "space-between" }}>
@@ -154,6 +189,68 @@ export default async function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Recent transactions */}
+      {txns && txns.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".2px" }}>
+              Recent this month
+            </span>
+            <Link href="/transactions" className="badge" style={{ cursor: "pointer" }}>
+              See all →
+            </Link>
+          </div>
+
+          <div className="col" style={{ gap: 8 }}>
+            {txns.slice(0, 5).map((t) => (
+              <div
+                key={t.id}
+                className="card"
+                style={{ padding: "12px 16px", borderRadius: 16 }}
+              >
+                <div className="row" style={{ justifyContent: "space-between" }}>
+                  <div className="row" style={{ gap: 10 }}>
+                    <span
+                      className={`badge ${t.direction === "income" ? "badgeGood" : "badgeBad"}`}
+                      style={{ fontSize: 12 }}
+                    >
+                      {t.direction === "income" ? "↘" : "↗"}
+                    </span>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>
+                        {t.note || (t.direction === "income" ? "income" : "expense")}
+                      </div>
+                      <div className="faint" style={{ fontSize: 11, marginTop: 2 }}>
+                        {new Date(t.created_at).toLocaleDateString("en-IN", {
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    className="money"
+                    style={{
+                      fontWeight: 800,
+                      fontSize: 14,
+                      color: t.direction === "income" ? "var(--goodLight)" : "var(--badLight)",
+                    }}
+                  >
+                    {t.direction === "income" ? "+" : "-"}
+                    {formatMoney(Number(t.amount ?? 0), currencyCode, "en-IN", {
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 0,
+                    })}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
