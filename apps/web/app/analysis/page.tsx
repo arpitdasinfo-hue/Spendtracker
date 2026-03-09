@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
   PieChart,
   Pie,
+  Cell,
   Tooltip,
   BarChart,
   Bar,
@@ -19,6 +20,24 @@ import {
   Line,
   Legend,
 } from "recharts";
+
+const PIE_COLORS = [
+  "#22d3ee","#a855f7","#fb7185","#34d399",
+  "#fbbf24","#818cf8","#f97316","#2dd4bf",
+  "#e879f9","#38bdf8",
+];
+
+const CHART_TOOLTIP_STYLE = {
+  background: "#0a0c24",
+  border: "1px solid rgba(255,255,255,.09)",
+  borderRadius: 12,
+  fontSize: 12,
+  color: "rgba(255,255,255,.88)",
+  boxShadow: "0 8px 32px rgba(0,0,0,.55)",
+};
+
+const AXIS_TICK = { fill: "rgba(255,255,255,.36)", fontSize: 11 };
+const AXIS_TICK_SMALL = { fill: "rgba(255,255,255,.36)", fontSize: 10 };
 
 type Txn = {
   direction: "expense" | "income";
@@ -402,8 +421,28 @@ export default function AnalysisPage() {
           <div style={{ width: "100%", height: 320 }}>
             <ResponsiveContainer>
               <PieChart>
-                <Pie data={metrics.categoryData} dataKey="value" nameKey="name" />
-                <Tooltip formatter={(value: any) => money(Number(value ?? 0))} />
+                <Pie
+                  data={metrics.categoryData}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius="40%"
+                  outerRadius="70%"
+                  paddingAngle={2}
+                  stroke="none"
+                >
+                  {metrics.categoryData.map((_, i) => (
+                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} fillOpacity={0.88} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(value: any) => money(Number(value ?? 0))}
+                  contentStyle={CHART_TOOLTIP_STYLE}
+                />
+                <Legend
+                  formatter={(value) => (
+                    <span style={{ color: "rgba(255,255,255,.55)", fontSize: 11 }}>{value}</span>
+                  )}
+                />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -417,16 +456,14 @@ export default function AnalysisPage() {
           <div className="sep" />
           <div style={{ width: "100%", height: 320 }}>
             <ResponsiveContainer>
-              <BarChart data={metrics.trend}>
-                <CartesianGrid strokeOpacity={0.15} />
-                <XAxis dataKey="month" tick={{ fill: "var(--muted)", fontSize: 11 }} />
-                <YAxis tickFormatter={(v) => money(Number(v ?? 0))} tick={{ fill: "var(--muted)", fontSize: 10 }} width={72} />
-                <Tooltip
-                  formatter={(value: any) => money(Number(value ?? 0))}
-                  contentStyle={{ background: "var(--cardSolid)", border: "1px solid var(--stroke)", borderRadius: 12 }}
-                />
-                <Bar dataKey="expense" fill="rgba(244,63,94,.75)" radius={[4,4,0,0]} name="Expense" />
-                <Bar dataKey="income"  fill="rgba(34,211,238,.75)" radius={[4,4,0,0]} name="Income" />
+              <BarChart data={metrics.trend} barGap={2}>
+                <CartesianGrid stroke="rgba(255,255,255,.06)" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="month" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={(v) => money(Number(v ?? 0))} tick={AXIS_TICK_SMALL} axisLine={false} tickLine={false} width={68} />
+                <Tooltip formatter={(value: any) => money(Number(value ?? 0))} contentStyle={CHART_TOOLTIP_STYLE} />
+                <Legend formatter={(value) => <span style={{ color: "rgba(255,255,255,.55)", fontSize: 11 }}>{value}</span>} />
+                <Bar dataKey="expense" fill="rgba(244,63,94,.82)"  radius={[4,4,0,0]} name="Expense" />
+                <Bar dataKey="income"  fill="rgba(34,211,238,.78)" radius={[4,4,0,0]} name="Income"  />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -438,14 +475,18 @@ export default function AnalysisPage() {
           <div style={{ width: "100%", height: 320 }}>
             <ResponsiveContainer>
               <LineChart data={metrics.weekly}>
-                <CartesianGrid strokeOpacity={0.15} />
-                <XAxis dataKey="week" tick={{ fill: "var(--muted)", fontSize: 11 }} />
-                <YAxis tickFormatter={(v) => money(Number(v ?? 0))} tick={{ fill: "var(--muted)", fontSize: 10 }} width={72} />
-                <Tooltip
-                  formatter={(value: any) => money(Number(value ?? 0))}
-                  contentStyle={{ background: "var(--cardSolid)", border: "1px solid var(--stroke)", borderRadius: 12 }}
+                <CartesianGrid stroke="rgba(255,255,255,.06)" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="week" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={(v) => money(Number(v ?? 0))} tick={AXIS_TICK_SMALL} axisLine={false} tickLine={false} width={68} />
+                <Tooltip formatter={(value: any) => money(Number(value ?? 0))} contentStyle={CHART_TOOLTIP_STYLE} />
+                <Line
+                  type="monotone"
+                  dataKey="expense"
+                  dot={false}
+                  stroke="#fb7185"
+                  strokeWidth={2.5}
+                  activeDot={{ r: 5, fill: "#fb7185", stroke: "rgba(251,113,133,.3)", strokeWidth: 4 }}
                 />
-                <Line type="monotone" dataKey="expense" dot={false} stroke="rgba(244,63,94,.85)" strokeWidth={2} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -462,20 +503,13 @@ export default function AnalysisPage() {
         <div style={{ width: "100%", height: 320 }}>
           <ResponsiveContainer>
             <BarChart data={metrics.yoy} barGap={2}>
-              <CartesianGrid strokeOpacity={0.15} />
-              <XAxis dataKey="month" tick={{ fill: "var(--muted)", fontSize: 11 }} />
-              <YAxis tickFormatter={(v) => money(Number(v ?? 0))} tick={{ fill: "var(--muted)", fontSize: 10 }} width={72} />
-              <Tooltip
-                formatter={(value: any) => money(Number(value ?? 0))}
-                contentStyle={{ background: "var(--cardSolid)", border: "1px solid var(--stroke)", borderRadius: 12 }}
-              />
-              <Legend
-                formatter={(value) => (
-                  <span style={{ color: "var(--muted)", fontSize: 12 }}>{value}</span>
-                )}
-              />
-              <Bar dataKey="lastYear"  fill="rgba(124,58,237,.55)" radius={[4,4,0,0]} name={String(new Date().getFullYear() - 1)} />
-              <Bar dataKey="thisYear"  fill="rgba(34,211,238,.80)" radius={[4,4,0,0]} name={String(new Date().getFullYear())} />
+              <CartesianGrid stroke="rgba(255,255,255,.06)" strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="month" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={(v) => money(Number(v ?? 0))} tick={AXIS_TICK_SMALL} axisLine={false} tickLine={false} width={68} />
+              <Tooltip formatter={(value: any) => money(Number(value ?? 0))} contentStyle={CHART_TOOLTIP_STYLE} />
+              <Legend formatter={(value) => <span style={{ color: "rgba(255,255,255,.55)", fontSize: 11 }}>{value}</span>} />
+              <Bar dataKey="lastYear" fill="rgba(124,58,237,.58)" radius={[4,4,0,0]} name={String(new Date().getFullYear() - 1)} />
+              <Bar dataKey="thisYear" fill="rgba(34,211,238,.82)" radius={[4,4,0,0]} name={String(new Date().getFullYear())} />
             </BarChart>
           </ResponsiveContainer>
         </div>

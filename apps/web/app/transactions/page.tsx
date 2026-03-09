@@ -338,7 +338,7 @@ export default function TransactionsPage() {
             {items.map((t) => {
               const pm = t.payment_method_id ? methods.get(t.payment_method_id) : null;
               return (
-                <div key={t.id} className="card" style={{ padding: "12px 14px", borderRadius: 16 }}>
+                <div key={t.id} className="card cardLift" style={{ padding: "12px 14px", borderRadius: 16 }}>
                   <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
                       <span className={`badge ${t.direction === "income" ? "badgeGood" : "badgeBad"}`}>

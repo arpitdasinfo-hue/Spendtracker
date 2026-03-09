@@ -34,7 +34,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
       <body>
-        {/* Overlay handles transitions; page content stays stable */}
+        {/* Animated background mesh — fixes iOS background-attachment:fixed */}
+        <div className="bg-mesh" aria-hidden="true">
+          <span className="bg-orb3" />
+        </div>
         <TransitionOverlay />
         {children}
         <TabBar />

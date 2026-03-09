@@ -141,7 +141,7 @@ export default function AddPage() {
 
         <label className="muted">Amount ({sym})</label>
         <input
-          className="input money"
+          className="input money inputAmount"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           inputMode="decimal"
