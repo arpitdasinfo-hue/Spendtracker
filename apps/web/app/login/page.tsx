@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatMobileNumber, normalizeMobileNumber } from "@/lib/auth-phone";
@@ -15,8 +15,63 @@ export default function LoginPage() {
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
   const [pendingVerificationPhone, setPendingVerificationPhone] = useState<string | null>(null);
+  const [phoneAuthEnabled, setPhoneAuthEnabled] = useState<boolean | null>(null);
+  const [setupMessage, setSetupMessage] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const enabled = hasSupabaseEnv();
+  const authBlocked = enabled && phoneAuthEnabled === false;
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    let active = true;
+
+    async function loadAuthSettings() {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/settings`, {
+          headers: {
+            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          },
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const data = (await response.json()) as {
+          external?: {
+            phone?: boolean;
+          };
+        };
+
+        if (!active) {
+          return;
+        }
+
+        const phoneEnabled = Boolean(data?.external?.phone);
+        setPhoneAuthEnabled(phoneEnabled);
+        setSetupMessage(
+          phoneEnabled
+            ? null
+            : "Phone auth is disabled in Supabase. Enable Authentication -> Phone before using mobile number sign-in or account creation."
+        );
+      } catch {
+        if (!active) {
+          return;
+        }
+
+        setPhoneAuthEnabled(null);
+      }
+    }
+
+    void loadAuthSettings();
+
+    return () => {
+      active = false;
+    };
+  }, [enabled]);
 
   function explainAuthError(rawMessage: string) {
     const lower = rawMessage.toLowerCase();
@@ -27,6 +82,18 @@ export default function LoginPage() {
 
     if (lower.includes("already registered")) {
       return "This mobile number already has an account. Switch to sign in instead.";
+    }
+
+    if (
+      lower.includes("phone logins are disabled") ||
+      lower.includes("unsupported phone provider") ||
+      lower.includes("phone provider is disabled")
+    ) {
+      return "Phone auth is disabled in Supabase. Enable Authentication -> Phone before using mobile number sign-in or account creation.";
+    }
+
+    if (lower.includes("sms") && lower.includes("provider")) {
+      return "Supabase phone auth is on, but SMS delivery is not configured correctly yet. Check the SMS provider settings in Supabase Auth.";
     }
 
     if (lower.includes("phone")) {
@@ -53,6 +120,11 @@ export default function LoginPage() {
 
     if (password.trim().length < 8) {
       setMessage("Use at least 8 characters for the password.");
+      return;
+    }
+
+    if (authBlocked) {
+      setMessage("Phone auth is disabled in Supabase. Enable Authentication -> Phone before using mobile number sign-in or account creation.");
       return;
     }
 
@@ -119,6 +191,11 @@ export default function LoginPage() {
       return;
     }
 
+    if (authBlocked) {
+      setMessage("Phone auth is disabled in Supabase. Enable Authentication -> Phone before using mobile number sign-in or account creation.");
+      return;
+    }
+
     setLoading(true);
     setMessage(null);
 
@@ -175,6 +252,8 @@ export default function LoginPage() {
 
           {enabled ? (
             <>
+              {setupMessage ? <div className="flow-note" aria-live="polite">{setupMessage}</div> : null}
+
               <div className="segmented-control" role="tablist" aria-label="Authentication mode">
                 <button
                   type="button"
@@ -241,8 +320,10 @@ export default function LoginPage() {
                     : "Create an account with your number and password. If phone confirmation is enabled in Supabase, this screen will ask for the SMS code next."}
                 </div>
 
+                {message ? <div className="flow-note" aria-live="polite">{message}</div> : null}
+
                 <div className="button-row">
-                  <button type="submit" className="button button-primary" disabled={loading}>
+                  <button type="submit" className="button button-primary" disabled={loading || authBlocked}>
                     {loading ? "Working…" : mode === "sign-in" ? "Sign in" : "Create account"}
                   </button>
                   <Link href="/dashboard" className="button button-secondary">
@@ -274,7 +355,7 @@ export default function LoginPage() {
                   </div>
 
                   <div className="button-row">
-                    <button type="submit" className="button button-primary" disabled={loading}>
+                    <button type="submit" className="button button-primary" disabled={loading || authBlocked}>
                       {loading ? "Verifying…" : "Verify and continue"}
                     </button>
                     <button
@@ -305,8 +386,6 @@ export default function LoginPage() {
               </div>
             </>
           )}
-
-          {message ? <div className="flow-note">{message}</div> : null}
         </div>
       </motion.section>
     </main>
