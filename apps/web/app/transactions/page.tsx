@@ -44,9 +44,9 @@ export default function TransactionsPage() {
   return (
     <main className="page">
       <PageHeader
-        eyebrow="Ledger that stays honest"
-        title="Every movement, clearly classified."
-        subtitle="Spend view shows consumption. Cash flow view shows bank outflow. The ledger keeps both lenses available without ever counting a credit-card repayment as new spend."
+        eyebrow="Activity"
+        title="Every movement, clearly grouped."
+        subtitle="Switch between spend and cash flow, filter by entry type, and keep repayments separate from actual spending."
       />
 
       <div className="split-grid">

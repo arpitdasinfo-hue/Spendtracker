@@ -1,7 +1,7 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, Cormorant_Garamond } from "next/font/google";
-import TabBar from "@/components/TabBar";
+import AppFrame from "@/components/AppFrame";
 import TransitionOverlay from "@/components/TransitionOverlay";
 import { FinanceProvider } from "@/components/finance/FinanceProvider";
 
@@ -45,10 +45,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </div>
         <FinanceProvider>
           <TransitionOverlay />
-          <div className="app-shell">
-            {children}
-          </div>
-          <TabBar />
+          <AppFrame>{children}</AppFrame>
         </FinanceProvider>
       </body>
     </html>

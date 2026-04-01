@@ -160,6 +160,129 @@ svg {
   min-height: 100dvh;
 }
 
+.app-shell-chrome {
+  padding-top: 5.9rem;
+}
+
+.app-chrome {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 32;
+  padding-top: 0.8rem;
+}
+
+.app-chrome-inner {
+  width: min(var(--max-width), calc(100% - 1rem));
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 1.4rem;
+  border: 1px solid rgba(23, 33, 43, 0.08);
+  background: rgba(255, 250, 244, 0.82);
+  box-shadow: 0 18px 48px rgba(83, 63, 25, 0.1);
+  backdrop-filter: blur(18px);
+}
+
+.chrome-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: fit-content;
+}
+
+.chrome-brand-mark {
+  width: 2.35rem;
+  height: 2.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.95rem;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--ink) 100%);
+  color: white;
+  font-weight: 800;
+  box-shadow: 0 14px 28px rgba(15, 157, 138, 0.18);
+}
+
+.chrome-brand-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.chrome-brand-title {
+  font-size: 0.98rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.chrome-brand-caption {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.chrome-nav {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.chrome-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--muted);
+  transition: background 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.chrome-link:hover {
+  transform: translateY(-1px);
+}
+
+.chrome-link-active {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.chrome-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-left: auto;
+}
+
+.chrome-identity {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.9rem;
+  padding: 0.7rem 1rem;
+  border-radius: 999px;
+  font-size: 0.86rem;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(23, 33, 43, 0.08);
+}
+
+.chrome-icon-link {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 2.95rem;
+  height: 2.95rem;
+  border-radius: 999px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(23, 33, 43, 0.08);
+}
+
 .page {
   width: min(var(--max-width), calc(100% - 2rem));
   margin: 0 auto;
@@ -257,6 +380,7 @@ svg {
 .accounts-grid,
 .workflow-grid,
 .insight-grid,
+.summary-grid,
 .two-up {
   display: grid;
   gap: 1rem;
@@ -285,6 +409,10 @@ svg {
 
 .insight-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .hero-card {
@@ -844,6 +972,35 @@ svg {
 }
 
 @media (max-width: 980px) {
+  .app-shell-chrome {
+    padding-top: 4.85rem;
+  }
+
+  .app-chrome {
+    padding-top: 0.55rem;
+  }
+
+  .app-chrome-inner {
+    width: calc(100% - 0.8rem);
+    padding: 0.7rem 0.8rem;
+    border-radius: 1.15rem;
+  }
+
+  .chrome-nav,
+  .chrome-identity,
+  .chrome-add-button,
+  .chrome-signout-button {
+    display: none;
+  }
+
+  .chrome-brand-caption {
+    display: none;
+  }
+
+  .chrome-icon-link {
+    display: inline-flex;
+  }
+
   .hero-grid,
   .split-grid,
   .two-up,
@@ -851,6 +1008,7 @@ svg {
   .accounts-grid,
   .workflow-grid,
   .insight-grid,
+  .summary-grid,
   .form-grid {
     grid-template-columns: 1fr;
   }
@@ -898,12 +1056,37 @@ svg {
     font-size: clamp(2.2rem, 12vw, 3.4rem);
   }
 
+  .tabbar {
+    width: calc(100% - 0.8rem);
+    gap: 0.15rem;
+    padding: 0.4rem;
+  }
+
+  .tab-item {
+    flex-direction: column;
+    gap: 0.22rem;
+    min-height: 3.25rem;
+    font-size: 0.68rem;
+  }
+
   .tab-item span {
+    display: block;
+  }
+}
+
+@media (min-width: 721px) {
+  .chrome-icon-link {
+    display: none;
+  }
+}
+
+@media (min-width: 981px) {
+  .tabbar {
     display: none;
   }
 
-  .tabbar {
-    width: calc(100% - 0.8rem);
+  .page {
+    padding-bottom: 2rem;
   }
 }
 
