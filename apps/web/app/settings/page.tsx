@@ -63,6 +63,9 @@ export default function SettingsPage() {
               ? `Supabase environment is configured.${userIdentity ? ` Signed in as ${userIdentity}.` : " Sign in is required to persist data."}`
               : "Supabase environment variables are missing. Add them before expecting persistence."}
           </div>
+          <div className="flow-note">
+            Login now uses mobile number + password in the UI, backed by a private email/password identifier in Supabase so the product does not depend on Twilio or phone OTP setup.
+          </div>
           {error ? <div className="flow-note">{error}</div> : null}
           <div className="flow-note">
             Android can support richer transaction ingestion through device-side SMS parsing flows.

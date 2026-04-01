@@ -5,9 +5,9 @@ Created: 2026-04-01
 ## Current Known Blockers
 
 - Auth setup mismatch:
-  - Live Supabase settings currently return `external.phone = false`
-  - Live Supabase settings currently return `phone_autoconfirm = false`
-  - Result: mobile number + password signup is intentionally blocked in the UI
+  - Live Supabase settings currently return `mailer_autoconfirm = false`
+  - If `SUPABASE_SERVICE_ROLE_KEY` is missing, instant mobile signup falls back to email/password sign-up and may still require email confirmation
+  - Result: the no-OTP UX should be QA'd in both `service role present` and `service role missing` states
 - Vercel project split:
   - `spendtracker` points at the repo root and produces an empty deploy
   - `spendtracker_060795` is the correct Next.js app with `apps/web` as root
@@ -16,10 +16,13 @@ Created: 2026-04-01
 
 - Verify sign up in a fresh incognito window
 - Verify sign in with an existing mobile number
+- Verify create account works with `SUPABASE_SERVICE_ROLE_KEY` configured
+- Verify fallback messaging when service role is missing and email confirmation is still on
 - Verify sign out from desktop top bar
 - Verify sign out from mobile settings path
-- Verify disabled auth state messaging when phone auth is off
+- Verify no Twilio or phone-provider dependency remains in the UI
 - Verify no OTP copy remains in the UI
+- Verify displayed identity uses the stored mobile number instead of the synthetic email
 - Verify stale session redirect behavior from `/login`
 
 ## Product QA

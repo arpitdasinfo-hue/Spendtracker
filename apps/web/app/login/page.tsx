@@ -1,11 +1,18 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { normalizeMobileNumber } from "@/lib/auth-phone";
+import { getMobileLoginEmail, normalizeMobileNumber } from "@/lib/auth-phone";
 import { createSupabaseBrowserClient, hasSupabaseEnv } from "@/lib/supabase/client";
+
+interface AuthSettingsResponse {
+  external?: {
+    email?: boolean;
+  };
+  mailer_autoconfirm?: boolean;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,77 +20,9 @@ export default function LoginPage() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [phoneAuthEnabled, setPhoneAuthEnabled] = useState<boolean | null>(null);
-  const [phoneAutoconfirmEnabled, setPhoneAutoconfirmEnabled] = useState<boolean | null>(null);
-  const [setupMessage, setSetupMessage] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const enabled = hasSupabaseEnv();
-  const authBlocked = enabled && (phoneAuthEnabled === false || phoneAutoconfirmEnabled === false);
-  const primaryCtaLabel = authBlocked
-    ? "Enable auth setup in Supabase"
-    : loading
-      ? "Working…"
-      : mode === "sign-in"
-        ? "Sign in"
-        : "Create account";
-
-  useEffect(() => {
-    if (!enabled) {
-      return;
-    }
-
-    let active = true;
-
-    async function loadAuthSettings() {
-      try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/settings`, {
-          headers: {
-            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-          },
-        });
-
-        if (!response.ok) {
-          return;
-        }
-
-        const data = (await response.json()) as {
-          external?: {
-            phone?: boolean;
-          };
-          phone_autoconfirm?: boolean;
-        };
-
-        if (!active) {
-          return;
-        }
-
-        const phoneEnabled = Boolean(data?.external?.phone);
-        const phoneAutoconfirm = Boolean(data?.phone_autoconfirm);
-        setPhoneAuthEnabled(phoneEnabled);
-        setPhoneAutoconfirmEnabled(phoneAutoconfirm);
-        setSetupMessage(
-          !phoneEnabled
-            ? "Phone auth is disabled in Supabase. Enable Authentication -> Phone before using mobile number sign-in or account creation."
-            : !phoneAutoconfirm
-              ? "Phone confirmation is still required in Supabase. Turn on auto-confirm for phone users if you want pure mobile number + password signup with no OTP."
-              : null
-        );
-      } catch {
-        if (!active) {
-          return;
-        }
-
-        setPhoneAuthEnabled(null);
-        setPhoneAutoconfirmEnabled(null);
-      }
-    }
-
-    void loadAuthSettings();
-
-    return () => {
-      active = false;
-    };
-  }, [enabled]);
+  const primaryCtaLabel = loading ? "Working…" : mode === "sign-in" ? "Sign in" : "Create account";
 
   function explainAuthError(rawMessage: string) {
     const lower = rawMessage.toLowerCase();
@@ -96,16 +35,12 @@ export default function LoginPage() {
       return "This mobile number already has an account. Switch to sign in instead.";
     }
 
-    if (
-      lower.includes("phone logins are disabled") ||
-      lower.includes("unsupported phone provider") ||
-      lower.includes("phone provider is disabled")
-    ) {
-      return "Phone auth is disabled in Supabase. Enable Authentication -> Phone before using mobile number sign-in or account creation.";
+    if (lower.includes("email not confirmed")) {
+      return "Account creation reached Supabase, but instant sign-in is still blocked by email confirmation. Add SUPABASE_SERVICE_ROLE_KEY on the server or disable email confirmation in Supabase Auth -> Email.";
     }
 
-    if (lower.includes("sms") && lower.includes("provider")) {
-      return "Supabase phone auth is on, but SMS delivery is not configured correctly yet. Check the SMS provider settings in Supabase Auth.";
+    if (lower.includes("email provider is disabled") || lower.includes("email logins are disabled")) {
+      return "Supabase email auth is disabled. Enable Authentication -> Email or add SUPABASE_SERVICE_ROLE_KEY to keep this mobile-number login design working.";
     }
 
     if (lower.includes("phone")) {
@@ -113,6 +48,20 @@ export default function LoginPage() {
     }
 
     return rawMessage;
+  }
+
+  async function loadAuthSettings() {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/settings`, {
+      headers: {
+        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as AuthSettingsResponse;
   }
 
   async function handlePrimarySubmit(event: FormEvent<HTMLFormElement>) {
@@ -130,13 +79,14 @@ export default function LoginPage() {
       return;
     }
 
-    if (password.trim().length < 8) {
-      setMessage("Use at least 8 characters for the password.");
+    const loginEmail = getMobileLoginEmail(normalizedPhone);
+    if (!loginEmail) {
+      setMessage("Unable to prepare sign-in for that mobile number.");
       return;
     }
 
-    if (authBlocked) {
-      setMessage("Enable Supabase phone auth and phone auto-confirm before using this mobile number + password flow.");
+    if (password.trim().length < 8) {
+      setMessage("Use at least 8 characters for the password.");
       return;
     }
 
@@ -146,7 +96,7 @@ export default function LoginPage() {
     try {
       if (mode === "sign-in") {
         const { error } = await supabase.auth.signInWithPassword({
-          phone: normalizedPhone,
+          email: loginEmail,
           password,
         });
 
@@ -159,27 +109,72 @@ export default function LoginPage() {
         return;
       }
 
-      const { data, error } = await supabase.auth.signUp({
-        phone: normalizedPhone,
-        password,
-        options: {
-          data: {
-            login_phone: normalizedPhone,
-          },
+      const signupResponse = await fetch("/api/auth/mobile-signup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify({
+          phone: normalizedPhone,
+          password,
+        }),
       });
 
-      if (error) {
-        throw error;
+      const signupPayload = (await signupResponse.json().catch(() => null)) as
+        | {
+            code?: string;
+            error?: string;
+          }
+        | null;
+
+      if (!signupResponse.ok) {
+        if (signupPayload?.code === "missing_service_role") {
+          const authSettings = await loadAuthSettings();
+          const emailAuthEnabled = Boolean(authSettings?.external?.email);
+          const mailerAutoconfirm = Boolean(authSettings?.mailer_autoconfirm);
+
+          if (!emailAuthEnabled) {
+            throw new Error("Supabase email auth is disabled. Enable Authentication -> Email or add SUPABASE_SERVICE_ROLE_KEY to keep this mobile-number login design working.");
+          }
+
+          if (!mailerAutoconfirm) {
+            throw new Error(
+              "Direct no-OTP signup is not fully configured yet. Add SUPABASE_SERVICE_ROLE_KEY on the server or disable email confirmation in Supabase Auth -> Email. No account was created."
+            );
+          }
+
+          const { error } = await supabase.auth.signUp({
+            email: loginEmail,
+            password,
+            options: {
+              data: {
+                login_phone: normalizedPhone,
+                auth_design: "mobile-password-email-bridge",
+              },
+            },
+          });
+
+          if (error) {
+            throw error;
+          }
+        } else if (signupPayload?.error) {
+          throw new Error(signupPayload.error);
+        } else {
+          throw new Error("Unable to create an account right now.");
+        }
       }
 
-      if (data.session) {
-        router.replace("/dashboard");
-        router.refresh();
-        return;
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password,
+      });
+
+      if (signInError) {
+        throw signInError;
       }
 
-      setMessage("Account created, but Supabase did not return a session. For this no-OTP experience, enable phone auto-confirm in Supabase Auth.");
+      router.replace("/dashboard");
+      router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? explainAuthError(error.message) : "Unable to complete sign-in right now.");
     } finally {
@@ -203,14 +198,12 @@ export default function LoginPage() {
               Sign in with your mobile number.
             </h1>
             <p className="page-subtitle">
-              This build persists accounts, transactions, budgets, goals, and mandates in Supabase with row-level security per user. Just your number and password.
+              This build persists accounts, transactions, budgets, goals, and mandates in Supabase with row-level security per user. You use your number and password, while the product maps that identity privately behind the scenes.
             </p>
           </div>
 
           {enabled ? (
             <>
-              {setupMessage ? <div className="flow-note" aria-live="polite">{setupMessage}</div> : null}
-
               <div className="segmented-control" role="tablist" aria-label="Authentication mode">
                 <button
                   type="button"
@@ -270,7 +263,7 @@ export default function LoginPage() {
                 <div className="flow-note">
                   {mode === "sign-in"
                     ? "Use the same number and password you set for this workspace. Your finance data stays scoped to your account in Supabase."
-                    : "Create an account with your number and password. This product expects a direct no-OTP signup flow when Supabase phone auth and phone auto-confirm are enabled."}
+                    : "Create an account with your number and password. No OTP, no SMS provider, and your mobile number is stored in your Supabase user metadata."}
                 </div>
 
                 {message ? <div className="flow-note" aria-live="polite">{message}</div> : null}
@@ -279,9 +272,8 @@ export default function LoginPage() {
                   <button
                     type="submit"
                     className="button button-primary"
-                    disabled={loading || authBlocked}
-                    aria-disabled={loading || authBlocked}
-                    title={authBlocked ? "Enable phone auth and phone auto-confirm in Supabase first." : undefined}
+                    disabled={loading}
+                    aria-disabled={loading}
                   >
                     {primaryCtaLabel}
                   </button>
@@ -289,12 +281,6 @@ export default function LoginPage() {
                     Back to app
                   </Link>
                 </div>
-
-                {authBlocked ? (
-                  <div className="helper-text">
-                    Submit is intentionally disabled until Supabase `Phone` auth and `phone auto-confirm` are enabled for this no-OTP login design.
-                  </div>
-                ) : null}
               </form>
             </>
           ) : (

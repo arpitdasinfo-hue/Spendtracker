@@ -9,7 +9,8 @@ Animated finance workspace for:
 - debit card, credit card, and UPI rails
 - mandates and recurring charges
 
-The current build stores product data in Supabase and uses mobile number + password auth for sign-in.
+The current build stores product data in Supabase and uses mobile number + password auth at the UI layer.
+Under the hood, the app maps each normalized mobile number to a private email/password identity in Supabase Auth and stores the mobile number in user metadata.
 
 ## Quick Setup
 
@@ -50,18 +51,21 @@ This creates:
 - the `apply_finance_entry(...)` RPC
 - row-level security policies
 
-### 4. Enable phone auth in Supabase
+### 4. Configure no-OTP mobile auth
 
-In Supabase:
+Recommended:
 
-1. Go to `Authentication`
-2. Enable `Phone`
-3. Configure the SMS delivery/provider settings you want to use for sign-up verification
-4. Decide whether you want phone confirmation on:
-   - if `on`, the app supports entering the SMS code after account creation
-   - if `off`, new accounts can land directly in the product after sign-up
+1. Add `SUPABASE_SERVICE_ROLE_KEY` to `apps/web/.env.local`
+2. Add the same `SUPABASE_SERVICE_ROLE_KEY` in Vercel production env vars
+3. Keep `Authentication -> Phone` turned off unless you explicitly want real SMS auth
+4. Keep `Authentication -> Email` enabled, because the app uses email/password under the hood
 
-The sign-in experience itself stays phone number + password on both local and production.
+Fallback if you do not want to use the service-role signup route:
+
+1. Open `Authentication -> Email`
+2. Turn off email confirmation
+
+That fallback still avoids OTP and Twilio, but the recommended service-role route gives the cleanest direct account creation flow without depending on inbox confirmation.
 
 ### 5. Start the app
 

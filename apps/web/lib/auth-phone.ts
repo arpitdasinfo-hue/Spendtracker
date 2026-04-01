@@ -1,7 +1,12 @@
 interface IdentityCarrier {
   phone?: string | null;
   email?: string | null;
+  user_metadata?: {
+    login_phone?: string | null;
+  } | null;
 }
+
+const MOBILE_LOGIN_EMAIL_DOMAIN = "mobile.spendtracker.app";
 
 export function normalizeMobileNumber(rawValue: string) {
   const trimmed = rawValue.trim();
@@ -63,6 +68,57 @@ export function formatMobileNumber(phone: string | null | undefined) {
   return normalized;
 }
 
+export function getMobileLoginEmail(phone: string) {
+  const normalized = normalizeMobileNumber(phone);
+  if (!normalized) {
+    return null;
+  }
+
+  const digits = normalized.replace(/\D/g, "");
+  return `mobile.${digits}@${MOBILE_LOGIN_EMAIL_DOMAIN}`;
+}
+
+export function getPhoneFromMobileLoginEmail(email: string | null | undefined) {
+  if (!email) {
+    return null;
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const suffix = `@${MOBILE_LOGIN_EMAIL_DOMAIN}`;
+  if (!normalizedEmail.endsWith(suffix)) {
+    return null;
+  }
+
+  const localPart = normalizedEmail.slice(0, -suffix.length);
+  if (!localPart.startsWith("mobile.")) {
+    return null;
+  }
+
+  const digits = localPart.slice("mobile.".length);
+  if (!/^\d{8,15}$/.test(digits)) {
+    return null;
+  }
+
+  return `+${digits}`;
+}
+
+export function getStoredMobileNumber(user: IdentityCarrier | null | undefined) {
+  const candidates = [
+    user?.user_metadata?.login_phone,
+    user?.phone,
+    getPhoneFromMobileLoginEmail(user?.email),
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeMobileNumber(candidate ?? "");
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
 export function getUserIdentity(user: IdentityCarrier | null | undefined) {
-  return formatMobileNumber(user?.phone) ?? user?.email ?? null;
+  return formatMobileNumber(getStoredMobileNumber(user)) ?? user?.email ?? null;
 }
