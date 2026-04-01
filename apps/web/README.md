@@ -1,36 +1,109 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Spendtracker Web
 
-## Getting Started
+Animated finance workspace for:
 
-First, run the development server:
+- expenses
+- income
+- transfers
+- credit card repayments
+- debit card, credit card, and UPI rails
+- mandates and recurring charges
+
+The current build stores product data in Supabase and uses Google auth for sign-in.
+
+## Quick Setup
+
+### 1. Install dependencies
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Add environment variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Create `apps/web/.env.local` from `apps/web/.env.example`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+cp .env.example .env.local
+```
 
-## Learn More
+Required variables:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 3. Run the Supabase SQL
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Open the Supabase SQL editor and run:
 
-## Deploy on Vercel
+[`apps/web/scripts/supabase_finance_schema.sql`](./scripts/supabase_finance_schema.sql)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+This creates:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `finance_accounts`
+- `finance_transactions`
+- `finance_budgets`
+- `finance_goals`
+- `finance_mandates`
+- the `apply_finance_entry(...)` RPC
+- row-level security policies
+
+### 4. Enable Google auth in Supabase
+
+In Supabase:
+
+1. Go to `Authentication`
+2. Enable `Google`
+3. Add your callback URL
+
+Local callback URL:
+
+```text
+http://localhost:3000/auth/callback
+```
+
+Production callback URL should be:
+
+```text
+https://your-domain.com/auth/callback
+```
+
+### 5. Start the app
+
+```bash
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+## Product Data Model
+
+The app separates:
+
+- `entry type`: expense, income, transfer, repayment
+- `payment rail`: UPI, card, bank transfer, cash, AutoPay
+- `funding source`: bank account, credit card, cash wallet, or credit line
+
+Important product rule:
+
+`Credit card repayment is not recorded as expense if the original card purchase was already recorded as expense.`
+
+## Helpful Files
+
+- [`app/dashboard/page.tsx`](./app/dashboard/page.tsx)
+- [`components/finance/FinanceProvider.tsx`](./components/finance/FinanceProvider.tsx)
+- [`components/finance/AddEntryWorkflow.tsx`](./components/finance/AddEntryWorkflow.tsx)
+- [`lib/finance.ts`](./lib/finance.ts)
+- [`lib/finance-supabase.ts`](./lib/finance-supabase.ts)
+- [`scripts/supabase_finance_schema.sql`](./scripts/supabase_finance_schema.sql)
+
+## Verification
+
+These commands were run successfully:
+
+```bash
+pnpm exec eslint . --max-warnings=0
+pnpm build
+```
