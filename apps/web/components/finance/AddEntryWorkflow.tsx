@@ -34,7 +34,7 @@ function getAllowedRails(entryType: EntryType) {
 }
 
 export default function AddEntryWorkflow({ initialType }: { initialType?: EntryType }) {
-  const { state, addEntry } = useFinance();
+  const { state, addEntry, status, error } = useFinance();
   const presetType = (() => {
     if (initialType && entryTypeSet.has(initialType)) {
       return initialType;
@@ -52,6 +52,7 @@ export default function AddEntryWorkflow({ initialType }: { initialType?: EntryT
   const [destinationAccountId, setDestinationAccountId] = useState<string | undefined>();
   const [note, setNote] = useState("");
   const [statusMessage, setStatusMessage] = useState<string>("");
+  const [saving, setSaving] = useState(false);
 
   const fundingOptions = useMemo(
     () => getFundingOptions(state, type, paymentRail),
@@ -81,6 +82,7 @@ export default function AddEntryWorkflow({ initialType }: { initialType?: EntryT
   const amountValue = Number(amount || 0);
   const requiresDestination = type === "income" || type === "transfer" || type === "repayment";
   const canSave =
+    status === "ready" &&
     amountValue > 0 &&
     Boolean(category) &&
     (type === "income" ? effectiveDestinationAccountId : effectiveFundingSourceId) &&
@@ -122,26 +124,35 @@ export default function AddEntryWorkflow({ initialType }: { initialType?: EntryT
     setCategory(expenseCategories[1]);
   }
 
-  function saveEntry() {
+  async function saveEntry() {
     if (!canSave) return;
 
-    addEntry({
-      amount: amountValue,
-      title: title || merchant || category,
-      merchant: merchant || title || category,
-      category,
-      type,
-      paymentRail,
-      fundingSourceId: effectiveFundingSourceId,
-      destinationAccountId: effectiveDestinationAccountId,
-      note: note || narrative,
-    });
+    setSaving(true);
+    setStatusMessage("");
 
-    setStatusMessage(`${typeMeta?.label ?? "Entry"} saved. The ledger, balances, and analytics have been updated locally.`);
-    setAmount("");
-    setTitle("");
-    setMerchant("");
-    setNote("");
+    try {
+      await addEntry({
+        amount: amountValue,
+        title: title || merchant || category,
+        merchant: merchant || title || category,
+        category,
+        type,
+        paymentRail,
+        fundingSourceId: effectiveFundingSourceId,
+        destinationAccountId: effectiveDestinationAccountId,
+        note: note || narrative,
+      });
+
+      setStatusMessage(`${typeMeta?.label ?? "Entry"} saved to Supabase. Balances and analytics have been synced.`);
+      setAmount("");
+      setTitle("");
+      setMerchant("");
+      setNote("");
+    } catch (nextError) {
+      setStatusMessage(nextError instanceof Error ? nextError.message : "Unable to save the entry.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const categories = type === "expense" ? expenseCategories : type === "income" ? incomeCategories : [category];
@@ -153,6 +164,28 @@ export default function AddEntryWorkflow({ initialType }: { initialType?: EntryT
         title="Capture the intent before the money moves."
         subtitle="The flow keeps classification explicit: first choose what happened, then how it moved, then which account actually funded it. That is how the product stays beautiful and accurate."
       />
+
+      {status !== "ready" ? (
+        <MotionPanel className="section-pad stack-md" delay={0.02}>
+          <div className="panel-header">
+            <div>
+              <h2 className="panel-title">Supabase sync required before saving</h2>
+              <p className="panel-subtitle">
+                {status === "loading"
+                  ? "The provider is still checking your session and loading your workspace."
+                  : status === "setup"
+                    ? "Configure Supabase env vars and run the schema SQL before using the workflow."
+                    : error ?? "Sign in first so entries can be stored under your account."}
+              </p>
+            </div>
+          </div>
+          <div className="button-row">
+            <Link href="/login" className="button button-primary">
+              Open login
+            </Link>
+          </div>
+        </MotionPanel>
+      ) : null}
 
       <div className="split-grid">
         <MotionPanel className="section-pad-lg stack-lg" delay={0.05}>
@@ -291,8 +324,8 @@ export default function AddEntryWorkflow({ initialType }: { initialType?: EntryT
           </div>
 
           <div className="button-row">
-            <button type="button" className="button button-primary" disabled={!canSave} onClick={saveEntry}>
-              Save entry
+            <button type="button" className="button button-primary" disabled={!canSave || saving} onClick={saveEntry}>
+              {saving ? "Saving…" : "Save entry"}
             </button>
             <Link href="/transactions" className="button button-secondary">
               Open ledger

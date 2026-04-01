@@ -86,6 +86,16 @@ export interface EntryInput {
   note: string;
 }
 
+export function createEmptyState(): FinanceState {
+  return {
+    accounts: [],
+    budgets: [],
+    goals: [],
+    mandates: [],
+    transactions: [],
+  };
+}
+
 const currencyFormatter = new Intl.NumberFormat("en-IN", {
   currency: "INR",
   style: "currency",

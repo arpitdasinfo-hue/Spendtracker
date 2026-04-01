@@ -1,14 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { useFinance } from "@/components/finance/FinanceProvider";
 import { ActionLink, MetricCard, MotionPanel, PageHeader, StatTag } from "@/components/finance/Primitives";
 import { buildFinanceSnapshot, formatCurrency, formatLongDate, percent } from "@/lib/finance";
 
 export default function DashboardPage() {
-  const { state, resetDemo } = useFinance();
+  const { state, resetDemo, status, userEmail, error, hasSupabase } = useFinance();
   const snapshot = buildFinanceSnapshot(state);
+  const [resetting, setResetting] = useState(false);
 
   const quickLinks = [
     { href: "/add?type=expense", label: "Log expense" },
@@ -16,6 +18,15 @@ export default function DashboardPage() {
     { href: "/add?type=transfer", label: "Move money" },
     { href: "/add?type=repayment", label: "Pay a card" },
   ];
+
+  async function handleResetDemo() {
+    setResetting(true);
+    try {
+      await resetDemo();
+    } finally {
+      setResetting(false);
+    }
+  }
 
   return (
     <main className="page">
@@ -25,9 +36,11 @@ export default function DashboardPage() {
         subtitle="A product-led money system for income, expense, UPI, debit cards, credit cards, and repayments. Spend view stays truthful, cash flow stays visible, and card dues stay calm."
         action={(
           <div className="button-row">
-            <button type="button" className="button button-secondary" onClick={resetDemo}>
-              Reset demo
-            </button>
+            {status === "ready" ? (
+              <button type="button" className="button button-secondary" onClick={handleResetDemo} disabled={resetting}>
+                {resetting ? "Resetting…" : "Reset demo"}
+              </button>
+            ) : null}
             <Link href="/add" className="button button-primary">
               Open workflow
             </Link>
@@ -35,11 +48,50 @@ export default function DashboardPage() {
         )}
       />
 
+      {status !== "ready" ? (
+        <MotionPanel className="section-pad stack-md" delay={0.02}>
+          <div className="panel-header">
+            <div>
+              <h2 className="panel-title">
+                {status === "setup"
+                  ? "Supabase is not configured yet"
+                  : status === "loading"
+                    ? "Connecting your finance workspace"
+                    : status === "error"
+                      ? "Supabase sync needs attention"
+                      : "Sign in to sync your money data"}
+              </h2>
+              <p className="panel-subtitle">
+                {status === "setup"
+                  ? "Add the Supabase URL and anon key, then run the schema SQL to persist the product data."
+                  : status === "loading"
+                    ? "Checking your session and loading accounts, budgets, mandates, and transactions."
+                    : status === "error"
+                      ? error ?? "We hit a sync problem while loading your finance data."
+                      : "Use Google sign-in so every account and transaction is stored under your user with row-level security."}
+              </p>
+            </div>
+            {userEmail ? <StatTag tone="accent">{userEmail}</StatTag> : null}
+          </div>
+          <div className="button-row">
+            {hasSupabase ? (
+              <Link href="/login" className="button button-primary">
+                Open sign in
+              </Link>
+            ) : (
+              <Link href="/settings" className="button button-secondary">
+                Setup notes
+              </Link>
+            )}
+          </div>
+        </MotionPanel>
+      ) : null}
+
       <div className="hero-grid">
         <MotionPanel className="hero-card" delay={0.05}>
           <div className="stack-lg">
             <div className="hero-note">
-              <span>Local-first prototype with live account math</span>
+              <span>{status === "ready" ? `Synced with Supabase${userEmail ? ` · ${userEmail}` : ""}` : "Preview shell with real product logic"}</span>
             </div>
 
             <div className="stack-sm">
