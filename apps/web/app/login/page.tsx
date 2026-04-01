@@ -19,6 +19,13 @@ export default function LoginPage() {
   const [message, setMessage] = useState<string | null>(null);
   const enabled = hasSupabaseEnv();
   const authBlocked = enabled && (phoneAuthEnabled === false || phoneAutoconfirmEnabled === false);
+  const primaryCtaLabel = authBlocked
+    ? "Enable auth setup in Supabase"
+    : loading
+      ? "Working…"
+      : mode === "sign-in"
+        ? "Sign in"
+        : "Create account";
 
   useEffect(() => {
     if (!enabled) {
@@ -269,13 +276,25 @@ export default function LoginPage() {
                 {message ? <div className="flow-note" aria-live="polite">{message}</div> : null}
 
                 <div className="button-row">
-                  <button type="submit" className="button button-primary" disabled={loading || authBlocked}>
-                    {loading ? "Working…" : mode === "sign-in" ? "Sign in" : "Create account"}
+                  <button
+                    type="submit"
+                    className="button button-primary"
+                    disabled={loading || authBlocked}
+                    aria-disabled={loading || authBlocked}
+                    title={authBlocked ? "Enable phone auth and phone auto-confirm in Supabase first." : undefined}
+                  >
+                    {primaryCtaLabel}
                   </button>
                   <Link href="/dashboard" className="button button-secondary">
                     Back to app
                   </Link>
                 </div>
+
+                {authBlocked ? (
+                  <div className="helper-text">
+                    Submit is intentionally disabled until Supabase `Phone` auth and `phone auto-confirm` are enabled for this no-OTP login design.
+                  </div>
+                ) : null}
               </form>
             </>
           ) : (
