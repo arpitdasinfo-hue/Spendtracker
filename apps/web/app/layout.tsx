@@ -1,46 +1,55 @@
 import "./globals.css";
-import { Inter } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Plus_Jakarta_Sans, Cormorant_Garamond } from "next/font/google";
 import TabBar from "@/components/TabBar";
 import TransitionOverlay from "@/components/TransitionOverlay";
+import { FinanceProvider } from "@/components/finance/FinanceProvider";
 
-const inter = Inter({
+const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
-  variable: "--font-inter",
+  variable: "--font-sans",
   display: "swap",
 });
 
-export const metadata = {
-  title: "SpendTracker",
-  description: "Dark neon fintech expense tracker",
+const cormorant = Cormorant_Garamond({
+  subsets: ["latin"],
+  variable: "--font-display",
+  weight: ["500", "600", "700"],
+  display: "swap",
+});
+
+export const metadata: Metadata = {
+  title: "Spendtracker",
+  description: "A polished finance command center for expense, income, UPI, cards, and repayments.",
   manifest: "/manifest.json",
-  themeColor: "#05060f",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "black-translucent",
-    title: "SpendTracker",
+    statusBarStyle: "default",
+    title: "Spendtracker",
   },
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
-    viewportFit: "cover",
-  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#f5efe6",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
-      <head>
-        <link rel="apple-touch-icon" href="/icon-192.png" />
-      </head>
+    <html lang="en" className={`${jakarta.variable} ${cormorant.variable}`}>
       <body>
-        {/* Animated background mesh — fixes iOS background-attachment:fixed */}
-        <div className="bg-mesh" aria-hidden="true">
-          <span className="bg-orb3" />
+        <div className="app-backdrop" aria-hidden="true">
+          <div className="app-noise" />
+          <div className="app-orb app-orb-a" />
+          <div className="app-orb app-orb-b" />
+          <div className="app-orb app-orb-c" />
         </div>
-        <TransitionOverlay />
-        {children}
-        <TabBar />
+        <FinanceProvider>
+          <TransitionOverlay />
+          <div className="app-shell">
+            {children}
+          </div>
+          <TabBar />
+        </FinanceProvider>
       </body>
     </html>
   );

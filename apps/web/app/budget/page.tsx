@@ -1,171 +1,135 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import ProgressRing from "@/components/ProgressRing";
-import MiniRing from "@/components/MiniRing";
-import { useCurrencySymbol } from "@/lib/useCurrency";
-
-type Cat = { id: string; name: string };
-type CatBudgetRow = { id: string; category_id: string; monthly_budget: number };
-type Txn = { direction: "expense" | "income"; amount: number | null; category_id: string | null; created_at: string };
+import { useFinance } from "@/components/finance/FinanceProvider";
+import { MetricCard, MotionPanel, PageHeader, StatTag } from "@/components/finance/Primitives";
+import { buildFinanceSnapshot, formatCurrency } from "@/lib/finance";
 
 export default function BudgetPage() {
-  const supabase = createSupabaseBrowserClient();
-  const router = useRouter();
-  const { sym, code } = useCurrencySymbol();
+  const { state } = useFinance();
+  const snapshot = buildFinanceSnapshot(state);
 
-  const [msg, setMsg] = useState<string | null>(null);
-
-  const [monthlyBudget, setMonthlyBudget] = useState<number>(0);
-  const [cats, setCats] = useState<Cat[]>([]);
-  const [catBudgets, setCatBudgets] = useState<CatBudgetRow[]>([]);
-  const [txns, setTxns] = useState<Txn[]>([]);
-
-  const monthStartISO = useMemo(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  }, []);
-
-  const spentThisMonth = useMemo(() => {
-    return (txns ?? [])
-      .filter((t) => t.direction === "expense")
-      .reduce((s, t) => s + Number(t.amount ?? 0), 0);
-  }, [txns]);
-
-  const categorySpend = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const t of txns) {
-      if (t.direction !== "expense") continue;
-      const key = t.category_id ?? "__uncat__";
-      m.set(key, (m.get(key) ?? 0) + Number(t.amount ?? 0));
-    }
-    return m;
-  }, [txns]);
-
-  const catNameById = useMemo(() => {
-    const m = new Map<string, string>();
-    cats.forEach((c) => m.set(c.id, c.name));
-    return m;
-  }, [cats]);
-
-  const budgetRows = useMemo(() => {
-    const rows = catBudgets.map((b) => {
-      const spent = categorySpend.get(b.category_id) ?? 0;
-      const total = Number(b.monthly_budget ?? 0);
-      const name = catNameById.get(b.category_id) ?? "Category";
-      const pct = total > 0 ? (spent / total) : 0;
-      return { ...b, name, spent, total, pct };
-    });
-    // sort by % used desc
-    rows.sort((a, b) => (b.pct - a.pct));
-    return rows;
-  }, [catBudgets, categorySpend, catNameById]);
-
-  async function loadAll() {
-    setMsg(null);
-    const { data: u } = await supabase.auth.getUser();
-    if (!u.user) return router.replace("/login");
-
-    const { data: b, error: bErr } = await supabase
-      .from("budgets")
-      .select("monthly_budget")
-      .eq("user_id", u.user.id)
-      .maybeSingle();
-    if (bErr) setMsg(bErr.message);
-    setMonthlyBudget(Number(b?.monthly_budget ?? 0));
-
-    const { data: cdata, error: cErr } = await supabase
-      .from("categories")
-      .select("id, name, is_active")
-      .eq("is_active", true)
-      .order("name", { ascending: true });
-    if (cErr) setMsg(cErr.message);
-    setCats((cdata ?? []).map((c: any) => ({ id: c.id, name: c.name })) as Cat[]);
-
-    const { data: cb, error: cbErr } = await supabase
-      .from("category_budgets")
-      .select("id, category_id, monthly_budget")
-      .order("updated_at", { ascending: false });
-    if (cbErr) setMsg(cbErr.message);
-    setCatBudgets((cb ?? []) as any);
-
-    const { data: t, error: tErr } = await supabase
-      .from("transactions")
-      .select("direction, amount, category_id, created_at")
-      .gte("created_at", monthStartISO)
-      .order("created_at", { ascending: false });
-    if (tErr) setMsg(tErr.message);
-    setTxns((t ?? []) as any);
-  }
-
-  useEffect(() => { loadAll(); }, [monthStartISO]);
+  const safeToSave = snapshot.monthSummary.income - snapshot.monthSummary.cashOutflow;
 
   return (
-    <main className="container">
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <div>
-          <h1 className="h1">Budget</h1>
-          <p className="sub">Progress only. Edit rules in Config.</p>
-        </div>
+    <main className="page">
+      <PageHeader
+        eyebrow="Spending guardrails"
+        title="Budgets that understand cash and cards."
+        subtitle="Category budgets use purchase-date spend, not repayment-date noise. That means you can see true behavior even when the card bill lands later."
+      />
 
-        <div className="row" style={{ gap: 8 }}>
-          <Link href="/goals" className="btn">
-            Goals →
-          </Link>
-          <button className="btn btnPrimary" onClick={() => router.push("/config/budget-rules")} type="button">
-            Edit rules
-          </button>
-        </div>
+      <div className="metric-grid">
+        <MetricCard
+          label="Total budgeted"
+          value={formatCurrency(state.budgets.reduce((sum, budget) => sum + budget.limit, 0))}
+          hint="Across the categories you actively guard."
+          tone="accent"
+        />
+        <MetricCard
+          label="Spent so far"
+          value={formatCurrency(snapshot.monthSummary.expense)}
+          hint="Current month spend view."
+        />
+        <MetricCard
+          label="Still safe to save"
+          value={formatCurrency(safeToSave)}
+          hint="Income minus cash-backed outflow."
+          tone={safeToSave >= 0 ? "good" : "danger"}
+        />
+        <MetricCard
+          label="Card pressure"
+          value={formatCurrency(snapshot.liabilitiesTotal)}
+          hint="Outstanding that will turn into future cash outflow."
+          tone="danger"
+        />
       </div>
 
-      {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
+      <div style={{ height: 16 }} />
 
-      <div className="card cardPad" style={{ marginTop: 14 }}>
-        {monthlyBudget > 0 ? (
-          <ProgressRing
-            value={spentThisMonth}
-            total={monthlyBudget}
-            symbol={sym}
-            currencyCode={code}
-            label="Monthly budget used (this month)"
-          />
-        ) : (
-          <div className="toast">
-            <span className="muted">No monthly budget set. </span>
-            <button className="btn btnPrimary" onClick={() => router.push("/config/budget-rules")} type="button">
-              Set budget rules
-            </button>
+      <div className="split-grid">
+        <MotionPanel className="section-pad-lg stack-md" delay={0.05}>
+          <div className="panel-header">
+            <div>
+              <h2 className="panel-title">Category pacing</h2>
+              <p className="panel-subtitle">The most important budget job is to show what needs attention before the month gets away.</p>
+            </div>
           </div>
-        )}
-      </div>
 
-      <div className="card cardPad" style={{ marginTop: 12 }}>
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <div className="pill"><span>🧩</span><span className="muted">Category budget usage</span></div>
-          <span className="badge">This month</span>
-        </div>
-
-        <div className="sep" />
-
-        {budgetRows.length === 0 ? (
-          <p className="muted">No category budgets set. Add them in Config → Budget Rules.</p>
-        ) : (
-          <div className="col" style={{ gap: 10 }}>
-            {budgetRows.map((r) => (
-              <MiniRing
-                key={r.id}
-                title={r.name}
-                value={r.spent}
-                total={r.total}
-                symbol={sym}
-                currencyCode={code}
-              />
+          <div className="budget-list">
+            {snapshot.budgetProgress.map((budget) => (
+              <div key={budget.category} className="budget-card">
+                <div className="budget-row">
+                  <div>
+                    <p className="account-name">{budget.category}</p>
+                    <p className="account-provider">
+                      {formatCurrency(budget.spent)} spent of {formatCurrency(budget.limit)}
+                    </p>
+                  </div>
+                  <StatTag tone={budget.ratio > 0.85 ? "danger" : "good"}>
+                    {Math.round(budget.ratio * 100)}%
+                  </StatTag>
+                </div>
+                <div className="budget-track">
+                  <div
+                    className="budget-fill"
+                    style={{
+                      width: `${Math.min(100, Math.round(budget.ratio * 100))}%`,
+                      background: budget.color,
+                    }}
+                  />
+                </div>
+                <p className="account-provider" style={{ marginTop: "0.8rem" }}>
+                  {budget.ratio > 0.85
+                    ? "Pacing hot. Review next spends or shift funds."
+                    : "Healthy pacing for now."}
+                </p>
+              </div>
             ))}
           </div>
-        )}
+        </MotionPanel>
+
+        <MotionPanel className="section-pad-lg stack-md" delay={0.1}>
+          <div className="panel-header">
+            <div>
+              <h2 className="panel-title">Savings goals</h2>
+              <p className="panel-subtitle">Goals turn extra cash flow into something intentional.</p>
+            </div>
+          </div>
+
+          <div className="budget-list">
+            {state.goals.map((goal) => {
+              const progress = goal.saved / goal.target;
+
+              return (
+                <div key={goal.id} className="goal-card">
+                  <div className="goal-row">
+                    <div>
+                      <p className="goal-title">{goal.name}</p>
+                      <p className="goal-meta">Target {formatCurrency(goal.target)} · due {goal.dueMonth}</p>
+                    </div>
+                    <StatTag tone="accent">{Math.round(progress * 100)}%</StatTag>
+                  </div>
+                  <div className="budget-track">
+                    <div
+                      className="budget-fill"
+                      style={{
+                        width: `${Math.min(100, Math.round(progress * 100))}%`,
+                        background: "linear-gradient(90deg, var(--accent) 0%, var(--ink) 100%)",
+                      }}
+                    />
+                  </div>
+                  <p className="goal-meta" style={{ marginTop: "0.8rem" }}>
+                    {formatCurrency(goal.saved)} already ring-fenced.
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flow-note">
+            Budgeting is based on actual consumption, not on when the repayment hits the bank account. That means a March card swipe belongs to March spend, even if the cash leaves in April.
+          </div>
+        </MotionPanel>
       </div>
     </main>
   );

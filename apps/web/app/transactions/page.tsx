@@ -1,405 +1,210 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { useCurrencySymbol } from "@/lib/useCurrency";
-import { formatMoney } from "@/lib/money";
-import TxnFilterModal, { TxnFilters, countActiveFilters } from "@/components/TxnFilterModal";
-import EditTxnModal, { EditableTxn } from "@/components/EditTxnModal";
+import { useState } from "react";
+import { useFinance } from "@/components/finance/FinanceProvider";
+import { MetricCard, MotionPanel, PageHeader, SegmentedControl, StatTag } from "@/components/finance/Primitives";
+import { buildFinanceSnapshot, formatCurrency, formatLongDate, getAccountById, type EntryType } from "@/lib/finance";
 
-type Txn = {
-  id: string;
-  direction: "expense" | "income";
-  amount: number | null;
-  note: string;
-  created_at: string;
-  category_id: string | null;
-  payment_method_id: string | null;
-  tag: "personal" | "official" | "receivable" | "payable" | null;
-};
-
-type Method = { id: string; name: string; channel: string; payment_type?: string | null; is_active: boolean };
-
-function tagLabel(t: Txn["tag"]) {
-  switch (t) {
-    case "official":   return "Official";
-    case "receivable": return "Receivable";
-    case "payable":    return "Payable";
-    default:           return "Personal";
-  }
-}
-
-function startOfWeekISO(d: Date) {
-  const day = (d.getDay() + 6) % 7;
-  const s = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  s.setDate(s.getDate() - day);
-  s.setHours(0, 0, 0, 0);
-  return s.toISOString();
-}
-function startOfMonthISO(d: Date) {
-  const s = new Date(d.getFullYear(), d.getMonth(), 1);
-  s.setHours(0, 0, 0, 0);
-  return s.toISOString();
-}
-function startOfDayISO(dateYYYYMMDD: string) {
-  const [y, m, dd] = dateYYYYMMDD.split("-").map(Number);
-  return new Date(y, m - 1, dd, 0, 0, 0, 0).toISOString();
-}
-function endOfDayISO(dateYYYYMMDD: string) {
-  const [y, m, dd] = dateYYYYMMDD.split("-").map(Number);
-  return new Date(y, m - 1, dd, 23, 59, 59, 999).toISOString();
-}
-
-const DEFAULT_FILTERS: TxnFilters = {
-  amountMode: "any", amountGt: "", amountLt: "", amountMin: "", amountMax: "",
-  channels: [], tags: [], direction: "any", dateMode: "any", dateFrom: "", dateTo: "",
-};
-
-const PAGE_SIZE = 50;
+type Filter = "all" | EntryType;
+type ViewMode = "spend" | "cashflow";
 
 export default function TransactionsPage() {
-  const supabase = createSupabaseBrowserClient();
-  const router = useRouter();
-  const { sym, code } = useCurrencySymbol();
+  const { state } = useFinance();
+  const snapshot = buildFinanceSnapshot(state);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [viewMode, setViewMode] = useState<ViewMode>("spend");
 
-  const [searchInput, setSearchInput] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const orderedTransactions = [...state.transactions].sort(
+    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+  );
 
-  const [items, setItems] = useState<Txn[]>([]);
-  const [methods, setMethods] = useState<Map<string, Method>>(new Map());
-  const [msg, setMsg] = useState<string | null>(null);
+  const filteredTransactions = orderedTransactions.filter((transaction) => {
+    if (filter === "all") return true;
+    return transaction.type === filter;
+  });
 
-  const [openFilter, setOpenFilter] = useState(false);
-  const [filters, setFilters] = useState<TxnFilters>({ ...DEFAULT_FILTERS });
-
-  const [totalCount, setTotalCount] = useState(0);
-  const [page, setPage] = useState(0);
-  const [loadingPage, setLoadingPage] = useState(false);
-  const [exporting, setExporting] = useState(false);
-
-  // Edit modal
-  const [editTxn, setEditTxn] = useState<EditableTxn | null>(null);
-
-  const [quickRange, setQuickRange] = useState<"all" | "7d" | "30d" | "90d" | "custom">("all");
-  const activeFilterCount = useMemo(() => countActiveFilters(filters), [filters]);
-
-  // Debounce search input → searchTerm
-  function handleSearchChange(v: string) {
-    setSearchInput(v);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setSearchTerm(v);
-    }, 300);
-  }
-
-  function resetPagination() { setItems([]); setPage(0); }
-
-  function applyTxnFilters(qy: any, methodsList: any[]) {
-    if (filters.direction !== "any") qy = qy.eq("direction", filters.direction);
-    if (filters.tags.length) qy = qy.in("tag", filters.tags);
-
-    const toNum = (s: string) => { const n = Number(s); return Number.isFinite(n) ? n : null; };
-    if (filters.amountMode === "gt") { const n = toNum(filters.amountGt); if (n !== null) qy = qy.gte("amount", n); }
-    else if (filters.amountMode === "lt") { const n = toNum(filters.amountLt); if (n !== null) qy = qy.lte("amount", n); }
-    else if (filters.amountMode === "between") {
-      const a = toNum(filters.amountMin); const b = toNum(filters.amountMax);
-      if (a !== null) qy = qy.gte("amount", a);
-      if (b !== null) qy = qy.lte("amount", b);
+  const grouped = filteredTransactions.reduce<Array<{ label: string; items: typeof filteredTransactions }>>((groups, transaction) => {
+    const label = new Intl.DateTimeFormat("en-IN", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    }).format(new Date(transaction.createdAt));
+    const bucket = groups.find((group) => group.label === label);
+    if (bucket) {
+      bucket.items.push(transaction);
+      return groups;
     }
-
-    const now = new Date();
-    if (filters.dateMode === "this_week") qy = qy.gte("created_at", startOfWeekISO(now));
-    else if (filters.dateMode === "this_month") qy = qy.gte("created_at", startOfMonthISO(now));
-    else if (filters.dateMode === "custom") {
-      if (filters.dateFrom) qy = qy.gte("created_at", startOfDayISO(filters.dateFrom));
-      if (filters.dateTo) qy = qy.lte("created_at", endOfDayISO(filters.dateTo));
-    }
-
-    if (filters.channels.length) {
-      const ids = (methodsList ?? []).filter((x: any) => filters.channels.includes(x.channel)).map((x: any) => x.id);
-      qy = ids.length === 0 ? qy.eq("id", "__none__") : qy.in("payment_method_id", ids);
-    }
-
-    // Server-side search
-    if (searchTerm.trim()) qy = qy.ilike("note", `%${searchTerm.trim()}%`);
-
-    return qy;
-  }
-
-  async function loadMethods() {
-    const { data: m, error: mErr } = await supabase
-      .from("payment_methods")
-      .select("id, name, channel, payment_type, is_active")
-      .order("created_at", { ascending: false });
-    if (mErr) setMsg(mErr.message);
-    const map = new Map<string, Method>();
-    (m ?? []).forEach((x: any) => map.set(x.id, x));
-    setMethods(map);
-    return m ?? [];
-  }
-
-  async function loadCountAndFirstPage() {
-    setMsg(null);
-    setLoadingPage(true);
-    const { data: u } = await supabase.auth.getUser();
-    if (!u.user) { setLoadingPage(false); return router.replace("/login"); }
-
-    const methodsList = await loadMethods();
-
-    const { count, error: cErr } = await applyTxnFilters(
-      supabase.from("transactions").select("id", { count: "exact", head: true }),
-      methodsList
-    );
-    if (cErr) setMsg(cErr.message);
-    setTotalCount(count ?? 0);
-
-    const { data, error } = await applyTxnFilters(
-      supabase.from("transactions")
-        .select("id, direction, amount, note, created_at, category_id, payment_method_id, tag")
-        .order("created_at", { ascending: false }),
-      methodsList
-    ).range(0, PAGE_SIZE - 1);
-
-    if (error) setMsg(error.message);
-    setItems((data ?? []) as Txn[]);
-    setPage(1);
-    setLoadingPage(false);
-  }
-
-  async function loadMore() {
-    if (loadingPage) return;
-    setLoadingPage(true);
-    const methodsList = await loadMethods();
-    const from = page * PAGE_SIZE;
-    const { data, error } = await applyTxnFilters(
-      supabase.from("transactions")
-        .select("id, direction, amount, note, created_at, category_id, payment_method_id, tag")
-        .order("created_at", { ascending: false }),
-      methodsList
-    ).range(from, from + PAGE_SIZE - 1);
-    if (error) setMsg(error.message);
-    setItems((prev) => [...prev, ...((data ?? []) as Txn[])]);
-    setPage((p) => p + 1);
-    setLoadingPage(false);
-  }
-
-  // CSV Export
-  async function exportCSV() {
-    setExporting(true);
-    const methodsList = await loadMethods();
-    const { data, error } = await applyTxnFilters(
-      supabase.from("transactions")
-        .select("id, direction, amount, note, created_at, tag, payment_method_id")
-        .order("created_at", { ascending: false }),
-      methodsList
-    );
-    if (error) { setMsg(error.message); setExporting(false); return; }
-
-    const rows = (data ?? []) as Txn[];
-    const header = "Date,Direction,Amount,Note,Tag,Payment Method\n";
-    const body = rows.map((t) => {
-      const date = new Date(t.created_at).toLocaleDateString("en-CA"); // YYYY-MM-DD
-      const pm = t.payment_method_id ? methods.get(t.payment_method_id)?.name ?? "" : "";
-      const noteClean = (t.note ?? "").replace(/"/g, '""');
-      return `${date},${t.direction},${t.amount ?? 0},"${noteClean}",${t.tag ?? "personal"},"${pm}"`;
-    }).join("\n");
-
-    const blob = new Blob([header + body], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `transactions-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setExporting(false);
-  }
-
-  useEffect(() => {
-    loadCountAndFirstPage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    groups.push({ label, items: [transaction] });
+    return groups;
   }, []);
 
-  // Re-fetch when searchTerm settles
-  useEffect(() => {
-    resetPagination();
-    loadCountAndFirstPage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm]);
-
-  // Quick date chips
-  useEffect(() => {
-    const setRange = (days: number) => {
-      const d = new Date(); d.setDate(d.getDate() - days);
-      const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-      setFilters((f) => ({ ...f, dateMode: "custom", dateFrom: iso, dateTo: "" }));
-    };
-    if (quickRange === "all") setFilters((f) => ({ ...f, dateMode: "any", dateFrom: "", dateTo: "" }));
-    else if (quickRange === "7d")  setRange(7);
-    else if (quickRange === "30d") setRange(30);
-    else if (quickRange === "90d") setRange(90);
-    else { setOpenFilter(true); return; }
-
-    resetPagination();
-    loadCountAndFirstPage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickRange]);
-
-  async function applyFilters() {
-    if (filters.amountMode === "between" && (!filters.amountMin || !filters.amountMax)) {
-      setMsg("Amount between requires both Min and Max."); return;
-    }
-    if (filters.dateMode === "custom" && filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo) {
-      setMsg("Date From must be before Date To."); return;
-    }
-    setOpenFilter(false); resetPagination(); await loadCountAndFirstPage();
-  }
-
-  function clearFiltersAndReload() {
-    setFilters({ ...DEFAULT_FILTERS }); setQuickRange("all");
-    setSearchInput(""); setSearchTerm("");
-    resetPagination(); loadCountAndFirstPage();
-  }
-
-  const showPagination = totalCount > PAGE_SIZE;
-  const hasMore = items.length < totalCount;
+  const headlineValue =
+    viewMode === "spend" ? snapshot.monthSummary.expense : snapshot.monthSummary.cashOutflow;
 
   return (
-    <main className="container">
-      <TxnFilterModal
-        open={openFilter} onClose={() => setOpenFilter(false)}
-        filters={filters} onChange={setFilters}
-        onClear={() => setFilters({ ...DEFAULT_FILTERS })}
-        onApply={applyFilters} currencySymbol={sym}
+    <main className="page">
+      <PageHeader
+        eyebrow="Ledger that stays honest"
+        title="Every movement, clearly classified."
+        subtitle="Spend view shows consumption. Cash flow view shows bank outflow. The ledger keeps both lenses available without ever counting a credit-card repayment as new spend."
       />
 
-      <EditTxnModal
-        txn={editTxn}
-        onClose={() => setEditTxn(null)}
-        onSaved={() => { setEditTxn(null); resetPagination(); loadCountAndFirstPage(); }}
-        onDeleted={() => { setEditTxn(null); resetPagination(); loadCountAndFirstPage(); }}
-      />
+      <div className="split-grid">
+        <MotionPanel className="section-pad stack-md" delay={0.05}>
+          <div className="panel-header">
+            <div>
+              <h2 className="panel-title">Filters</h2>
+              <p className="panel-subtitle">Switch the lens before reading the numbers.</p>
+            </div>
+          </div>
+          <SegmentedControl
+            value={viewMode}
+            onChange={(value) => setViewMode(value as ViewMode)}
+            items={[
+              { value: "spend", label: "Spend view" },
+              { value: "cashflow", label: "Cash flow view" },
+            ]}
+          />
+          <SegmentedControl
+            value={filter}
+            onChange={(value) => setFilter(value as Filter)}
+            items={[
+              { value: "all", label: "All" },
+              { value: "expense", label: "Expense" },
+              { value: "income", label: "Income" },
+              { value: "transfer", label: "Transfer" },
+              { value: "repayment", label: "Repayment" },
+            ]}
+          />
+          <div className="flow-note">
+            {viewMode === "spend"
+              ? "Spend view includes only actual expenses, whether they were paid by bank, debit card, UPI, or credit card."
+              : "Cash flow view surfaces bank-backed expense outflow and card repayments together so liquidity pressure is easy to read."}
+          </div>
+        </MotionPanel>
 
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <div>
-          <h1 className="h1">Transactions</h1>
-          <p className="sub">Browse, filter, edit and export.</p>
-        </div>
-        <div className="row">
-          <Link href="/receivables" className="badge" style={{ cursor: "pointer" }}>Receivables →</Link>
-          <button className="btn btnPrimary" onClick={() => router.push("/add")} type="button">＋ Add</button>
-        </div>
-      </div>
-
-      {/* Quick range chips */}
-      <div className="row" style={{ marginTop: 10, flexWrap: "wrap" }}>
-        {(["all","7d","30d","90d","custom"] as const).map((x) => (
-          <button key={x} type="button"
-            className={`btn ${quickRange === x ? "btnPrimary" : ""}`}
-            onClick={() => setQuickRange(x)}
-          >
-            {x === "all" ? "All" : x === "custom" ? "Custom" : x.toUpperCase()}
-          </button>
-        ))}
-      </div>
-
-      {/* Search + Filter + Export row */}
-      <div className="row" style={{ marginTop: 12, gap: 10 }}>
-        <div className="card" style={{ padding: 12, borderRadius: 18, flex: 1 }}>
-          <input
-            className="input"
-            value={searchInput}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search all transactions by note…"
+        <div className="metric-grid">
+          <MetricCard
+            label={viewMode === "spend" ? "Spend in focus" : "Cash outflow in focus"}
+            value={formatCurrency(headlineValue)}
+            hint={viewMode === "spend" ? "Expenses only." : "Bank-backed spend plus repayments."}
+            tone="accent"
+          />
+          <MetricCard
+            label="Income this month"
+            value={formatCurrency(snapshot.monthSummary.income)}
+            hint="Used to calculate net movement."
+            tone="good"
+          />
+          <MetricCard
+            label="Transfers"
+            value={formatCurrency(snapshot.monthSummary.transferVolume)}
+            hint="Internal liquidity movements."
+          />
+          <MetricCard
+            label="Repayments"
+            value={formatCurrency(snapshot.monthSummary.repayments)}
+            hint="Visible here, excluded from expense totals."
+            tone="danger"
           />
         </div>
-        <button className={`btn ${activeFilterCount ? "btnPrimary" : ""}`} onClick={() => setOpenFilter(true)} type="button">
-          Filter {activeFilterCount ? `(${activeFilterCount})` : ""}
-        </button>
-        <button className="btn" onClick={exportCSV} disabled={exporting} type="button">
-          {exporting ? "…" : "CSV"}
-        </button>
-        {(activeFilterCount || quickRange !== "all" || searchTerm) ? (
-          <button className="btn" onClick={clearFiltersAndReload} type="button">Clear</button>
-        ) : null}
       </div>
 
-      {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
+      <div style={{ height: 16 }} />
 
-      <div className="card cardPad" style={{ marginTop: 12 }}>
-        {loadingPage && items.length === 0 ? (
-          <p className="muted">Loading…</p>
-        ) : items.length === 0 ? (
-          <p className="muted">No transactions found.</p>
-        ) : (
-          <div className="col" style={{ gap: 8 }}>
-            {items.map((t) => {
-              const pm = t.payment_method_id ? methods.get(t.payment_method_id) : null;
-              return (
-                <div key={t.id} className="card cardLift" style={{ padding: "12px 14px", borderRadius: 16 }}>
-                  <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
-                      <span className={`badge ${t.direction === "income" ? "badgeGood" : "badgeBad"}`}>
-                        {t.direction === "income" ? "↘ IN" : "↗ OUT"}
-                      </span>
-                      <div>
-                        <div style={{ fontWeight: 650 }}>{t.note}</div>
-                        <div className="row" style={{ gap: 6, marginTop: 5, flexWrap: "wrap" }}>
-                          <span className="badge">{tagLabel(t.tag)}</span>
-                          {pm ? <span className="badge">{pm.name}</span> : <span className="badge">No method</span>}
-                          {pm?.channel ? <span className="badge">{pm.channel.toUpperCase()}</span> : null}
-                        </div>
-                        <div className="faint" style={{ fontSize: 11, marginTop: 5 }}>
-                          {new Date(t.created_at).toLocaleString("en-IN")}
-                        </div>
-                      </div>
-                    </div>
+      <div className="split-grid">
+        <MotionPanel className="section-pad-lg stack-md" delay={0.1}>
+          <div className="panel-header">
+            <div>
+              <h2 className="panel-title">Timeline ledger</h2>
+              <p className="panel-subtitle">{filteredTransactions.length} entries currently in view.</p>
+            </div>
+            <StatTag tone="neutral">{filter}</StatTag>
+          </div>
 
-                    <div className="row" style={{ gap: 8, alignItems: "flex-start" }}>
-                      <div className="money" style={{ fontWeight: 800, color: t.direction === "income" ? "var(--goodLight)" : "var(--badLight)" }}>
-                        {t.direction === "income" ? "+" : "-"}{formatMoney(Number(t.amount ?? 0), code)}
+          <div className="timeline-list">
+            {grouped.map((group) => (
+              <div key={group.label}>
+                <div className="timeline-label">{group.label}</div>
+                <div className="timeline-list">
+                  {group.items.map((transaction) => {
+                    const fromAccount = getAccountById(state, transaction.fromAccountId);
+                    const toAccount = getAccountById(state, transaction.toAccountId);
+
+                    return (
+                      <div key={transaction.id} className="timeline-card">
+                        <div className="ledger-row">
+                          <div>
+                            <p className="ledger-title">{transaction.title}</p>
+                            <p className="ledger-meta">
+                              {transaction.category} · {transaction.paymentRail.replace("_", " ")} · {transaction.origin}
+                            </p>
+                          </div>
+                          <div
+                            className={`ledger-amount ${
+                              transaction.type === "income"
+                                ? "amount-positive"
+                                : transaction.type === "expense"
+                                  ? "amount-negative"
+                                  : ""
+                            }`}
+                          >
+                            {transaction.type === "income" ? "+" : transaction.type === "expense" ? "-" : ""}
+                            {formatCurrency(transaction.amount)}
+                          </div>
+                        </div>
+                        <p className="ledger-meta" style={{ marginTop: "0.8rem" }}>
+                          {fromAccount ? `From ${fromAccount.provider}` : "No source account"}{toAccount ? ` to ${toAccount.provider}` : ""} · {formatLongDate(transaction.createdAt)}
+                        </p>
+                        <p className="ledger-meta">{transaction.note}</p>
                       </div>
-                      <button
-                        className="btn"
-                        style={{ padding: "6px 10px", fontSize: 13 }}
-                        onClick={() => setEditTxn({
-                          id: t.id,
-                          direction: t.direction,
-                          amount: t.amount,
-                          note: t.note,
-                          category_id: t.category_id,
-                          payment_method_id: t.payment_method_id,
-                          tag: t.tag,
-                        })}
-                        type="button"
-                      >
-                        ✎
-                      </button>
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
-        )}
+        </MotionPanel>
 
-        {showPagination && <div className="sep" />}
-        {showPagination && (
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <span className="faint" style={{ fontSize: 12 }}>
-              Showing {items.length} of {totalCount}
-            </span>
-            {hasMore ? (
-              <button className="btn btnPrimary" onClick={loadMore} disabled={loadingPage} type="button">
-                {loadingPage ? "Loading…" : "Load more"}
-              </button>
-            ) : (
-              <span className="badge">End</span>
-            )}
+        <MotionPanel className="section-pad-lg stack-md" delay={0.16}>
+          <div className="panel-header">
+            <div>
+              <h2 className="panel-title">Classification rules</h2>
+              <p className="panel-subtitle">These are the product guardrails that keep reports clean.</p>
+            </div>
           </div>
-        )}
+
+          <div className="workflow-grid">
+            {[
+              {
+                title: "Expense",
+                body: "Counts toward category analytics immediately, including credit-card purchases and UPI on supported credit cards.",
+              },
+              {
+                title: "Income",
+                body: "Increases asset balances and feeds savings-rate visibility.",
+              },
+              {
+                title: "Transfer",
+                body: "Moves money between your own accounts and stays out of spend analytics.",
+              },
+              {
+                title: "Repayment",
+                body: "Reduces card outstanding and bank balance but does not inflate expense totals.",
+              },
+            ].map((item, index) => (
+              <div key={item.title} className="workflow-step">
+                <div className="workflow-index">{index + 1}</div>
+                <h3 className="account-name">{item.title}</h3>
+                <p className="account-provider">{item.body}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="flow-note">
+            Users often feel the card repayment as a real cash pinch. That is why the app shows it in cash flow and due management, while spend view continues to anchor the purchase to the day the consumption actually happened.
+          </div>
+        </MotionPanel>
       </div>
     </main>
   );

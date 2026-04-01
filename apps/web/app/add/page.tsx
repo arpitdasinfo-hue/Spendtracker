@@ -1,192 +1,23 @@
-"use client";
+import AddEntryWorkflow from "@/components/finance/AddEntryWorkflow";
+import type { EntryType } from "@/lib/finance";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import SearchSelect, { SearchItem } from "@/components/SearchSelect";
-import { useCurrencySymbol } from "@/lib/useCurrency";
-import TagChips, { TxnTag } from "@/components/TagChips";
+interface AddPageProps {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}
 
-export default function AddPage() {
-  const supabase = createSupabaseBrowserClient();
-  const router = useRouter();
-  const { sym } = useCurrencySymbol();
+function resolveInitialType(value: string | string[] | undefined): EntryType | undefined {
+  if (typeof value !== "string") return undefined;
 
-  const [direction, setDirection] = useState<"expense" | "income">("expense");
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
-
-  const [tag, setTag] = useState<TxnTag>("personal");
-
-  const [categories, setCategories] = useState<SearchItem[]>([]);
-  const [categoryId, setCategoryId] = useState<string | null>(null);
-
-  const [methods, setMethods] = useState<SearchItem[]>([]);
-  const [paymentMethodId, setPaymentMethodId] = useState<string | null>(null);
-
-  const [msg, setMsg] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [savingRecurring, setSavingRecurring] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      const { data: u } = await supabase.auth.getUser();
-      if (!u.user) return router.replace("/login");
-
-      const { data: c, error: cErr } = await supabase
-        .from("categories")
-        .select("id, name, is_active")
-        .eq("is_active", true)
-        .order("name", { ascending: true });
-
-      if (!cErr) setCategories((c ?? []).map((x: any) => ({ id: x.id, label: x.name })));
-
-      const { data: m, error: mErr } = await supabase
-        .from("payment_methods")
-        .select("id, name, channel, payment_type, is_active")
-        .eq("is_active", true)
-        .order("created_at", { ascending: false });
-
-      if (!mErr) setMethods((m ?? []).map((x: any) => ({ id: x.id, label: x.name, sublabel: `${x.payment_type ?? ""} · ${x.channel}`.trim() })));
-    })();
-  }, [router]);
-
-  async function saveAsRecurring() {
-    setMsg(null);
-    setSavingRecurring(true);
-    const { data: u } = await supabase.auth.getUser();
-    if (!u.user) { setSavingRecurring(false); router.replace("/login"); return; }
-
-    const amt = Number(amount);
-    if (!amt || Number.isNaN(amt) || amt <= 0) {
-      setSavingRecurring(false);
-      return setMsg(`Enter a valid amount (e.g., ${sym}250).`);
-    }
-
-    const { error } = await supabase.from("recurring_templates").insert({
-      user_id: u.user.id,
-      direction,
-      amount: amt,
-      note: (note || (direction === "expense" ? "expense" : "income")).slice(0, 80),
-      category_id: categoryId,
-      payment_method_id: paymentMethodId,
-      tag,
-    });
-
-    setSavingRecurring(false);
-    if (error) return setMsg(error.message);
-    setMsg("Saved as recurring template!");
+  if (value === "expense" || value === "income" || value === "transfer" || value === "repayment") {
+    return value;
   }
 
-  async function save() {
-    setMsg(null);
-    setLoading(true);
+  return undefined;
+}
 
-    const { data: u } = await supabase.auth.getUser();
-    if (!u.user) {
-      setLoading(false);
-      router.replace("/login");
-      return;
-    }
+export default async function AddPage({ searchParams }: AddPageProps) {
+  const params = searchParams ? await searchParams : undefined;
+  const initialType = resolveInitialType(params?.type);
 
-    const amt = Number(amount);
-    if (!amt || Number.isNaN(amt) || amt <= 0) {
-      setLoading(false);
-      return setMsg(`Enter a valid amount (e.g., ${sym}250).`);
-    }
-
-    const { error } = await supabase.from("transactions").insert({
-      user_id: u.user.id,
-      direction,
-      amount: amt,
-      note: (note || (direction === "expense" ? "expense" : "income")).slice(0, 80),
-      category_id: categoryId,
-      payment_method_id: paymentMethodId,
-      tag,
-      occurred_at: new Date().toISOString(),
-      payment_method: "manual_form",
-    });
-
-    setLoading(false);
-    if (error) return setMsg(error.message);
-
-    router.replace("/dashboard");
-  }
-
-  return (
-    <main className="container">
-      <h1 className="h1">Add</h1>
-      <p className="sub">Full entry: category + payment method + tag.</p>
-
-      <div className="card cardPad" style={{ marginTop: 14 }}>
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <div className={`pill ${direction === "expense" ? "dirPillOut" : "dirPillIn"}`}>
-            <span className={direction === "expense" ? "directionOut" : "directionIn"}>
-              {direction === "expense" ? "↗" : "↘"}
-            </span>
-            <span className="muted">{direction === "expense" ? "Expense" : "Income"}</span>
-          </div>
-
-          <div className="row">
-            <button className={`btn ${direction === "expense" ? "btnDanger" : ""}`} onClick={() => setDirection("expense")} type="button">
-              Expense
-            </button>
-            <button className={`btn ${direction === "income" ? "btnPrimary" : ""}`} onClick={() => setDirection("income")} type="button">
-              Income
-            </button>
-          </div>
-        </div>
-
-        <div className="sep" />
-
-        <label className="muted">Amount ({sym})</label>
-        <input
-          className="input money inputAmount"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          inputMode="decimal"
-          placeholder="250"
-          style={{ fontSize: 18, fontWeight: 800, marginTop: 8 }}
-        />
-
-        <div style={{ height: 12 }} />
-
-        <label className="muted">Note</label>
-        <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="chai, rent, groceries…" style={{ marginTop: 8 }} />
-
-        <div style={{ height: 12 }} />
-
-        <SearchSelect label="Category" placeholder="Select category…" items={categories} valueId={categoryId} onChange={setCategoryId} />
-
-        <div style={{ height: 12 }} />
-
-        <SearchSelect label="Payment method" placeholder="Select payment method…" items={methods} valueId={paymentMethodId} onChange={setPaymentMethodId} />
-
-        <div style={{ height: 12 }} />
-
-        <TagChips value={tag} onChange={setTag} />
-
-        <div className="row" style={{ marginTop: 14 }}>
-          <button className="btn btnPrimary" style={{ flex: 1 }} onClick={save} disabled={loading || savingRecurring}>
-            {loading ? "Saving…" : "Save"}
-          </button>
-          <button className="btn" style={{ flex: 1 }} onClick={() => router.replace("/dashboard")} disabled={loading || savingRecurring} type="button">
-            Cancel
-          </button>
-        </div>
-
-        <button
-          className="btn"
-          style={{ width: "100%", marginTop: 8, fontSize: 13, color: "var(--muted)" }}
-          onClick={saveAsRecurring}
-          disabled={loading || savingRecurring}
-          type="button"
-        >
-          {savingRecurring ? "Saving template…" : "Save as Recurring Template"}
-        </button>
-
-        {msg && <div className="toast" style={{ marginTop: 12 }}>{msg}</div>}
-      </div>
-    </main>
-  );
+  return <AddEntryWorkflow initialType={initialType} />;
 }
