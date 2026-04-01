@@ -7,7 +7,7 @@ import { MotionPanel, PageHeader } from "@/components/finance/Primitives";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export default function SettingsPage() {
-  const { resetDemo, status, hasSupabase, userEmail, error } = useFinance();
+  const { resetDemo, status, hasSupabase, userIdentity, error } = useFinance();
   const [resetting, setResetting] = useState(false);
 
   async function handleResetDemo() {
@@ -60,7 +60,7 @@ export default function SettingsPage() {
           </div>
           <div className="flow-note">
             {hasSupabase
-              ? `Supabase environment is configured.${userEmail ? ` Signed in as ${userEmail}.` : " Sign in is required to persist data."}`
+              ? `Supabase environment is configured.${userIdentity ? ` Signed in as ${userIdentity}.` : " Sign in is required to persist data."}`
               : "Supabase environment variables are missing. Add them before expecting persistence."}
           </div>
           {error ? <div className="flow-note">{error}</div> : null}

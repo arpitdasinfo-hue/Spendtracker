@@ -1,64 +1,297 @@
 "use client";
 
-import { useState } from "react";
+import { motion } from "framer-motion";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { formatMobileNumber, normalizeMobileNumber } from "@/lib/auth-phone";
 import { createSupabaseBrowserClient, hasSupabaseEnv } from "@/lib/supabase/client";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const [mode, setMode] = useState<"sign-in" | "create-account">("sign-in");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
+  const [pendingVerificationPhone, setPendingVerificationPhone] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const enabled = hasSupabaseEnv();
 
-  async function loginWithGoogle() {
+  function explainAuthError(rawMessage: string) {
+    const lower = rawMessage.toLowerCase();
+
+    if (lower.includes("invalid login credentials")) {
+      return "That mobile number and password do not match.";
+    }
+
+    if (lower.includes("already registered")) {
+      return "This mobile number already has an account. Switch to sign in instead.";
+    }
+
+    if (lower.includes("phone")) {
+      return "Enter a valid mobile number, including country code if it is not an Indian 10-digit number.";
+    }
+
+    return rawMessage;
+  }
+
+  async function handlePrimarySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
     const supabase = createSupabaseBrowserClient();
     if (!supabase) {
       setMessage("Add your Supabase URL and anon key first.");
       return;
     }
 
+    const normalizedPhone = normalizeMobileNumber(phone);
+    if (!normalizedPhone) {
+      setMessage("Enter a valid mobile number. A standard 10-digit Indian number works too.");
+      return;
+    }
+
+    if (password.trim().length < 8) {
+      setMessage("Use at least 8 characters for the password.");
+      return;
+    }
+
     setLoading(true);
     setMessage(null);
 
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
+    try {
+      if (mode === "sign-in") {
+        const { error } = await supabase.auth.signInWithPassword({
+          phone: normalizedPhone,
+          password,
+        });
 
-    if (error) {
-      setMessage(error.message);
+        if (error) {
+          throw error;
+        }
+
+        router.replace("/dashboard");
+        router.refresh();
+        return;
+      }
+
+      const { data, error } = await supabase.auth.signUp({
+        phone: normalizedPhone,
+        password,
+        options: {
+          data: {
+            login_phone: normalizedPhone,
+          },
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (data.session) {
+        router.replace("/dashboard");
+        router.refresh();
+        return;
+      }
+
+      setPendingVerificationPhone(normalizedPhone);
+      setOtp("");
+      setMessage(`We sent a verification code to ${formatMobileNumber(normalizedPhone) ?? normalizedPhone}. Enter it below to finish creating the workspace.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? explainAuthError(error.message) : "Unable to complete sign-in right now.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleOtpVerification(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase || !pendingVerificationPhone) {
+      setMessage("Start by creating an account.");
+      return;
+    }
+
+    if (!otp.trim()) {
+      setMessage("Enter the verification code sent to your phone.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage(null);
+
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone: pendingVerificationPhone,
+        token: otp.trim(),
+        type: "sms",
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data.session) {
+        const { error: loginError } = await supabase.auth.signInWithPassword({
+          phone: pendingVerificationPhone,
+          password,
+        });
+
+        if (loginError) {
+          throw loginError;
+        }
+      }
+
+      router.replace("/dashboard");
+      router.refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? explainAuthError(error.message) : "Unable to verify the code right now.");
+    } finally {
       setLoading(false);
     }
   }
 
   return (
     <main className="page" style={{ display: "grid", placeItems: "center", minHeight: "100dvh" }}>
-      <section className="panel section-pad-lg" style={{ maxWidth: "38rem", width: "100%" }}>
+      <motion.section
+        className="panel section-pad-lg"
+        initial={{ opacity: 0, y: 22, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.45, ease: "easeOut" }}
+        style={{ maxWidth: "38rem", width: "100%" }}
+      >
         <div className="stack-lg">
           <div>
-            <div className="eyebrow">Supabase sync</div>
+            <div className="eyebrow">Secure workspace access</div>
             <h1 className="display-title" style={{ fontSize: "clamp(2.4rem, 7vw, 4.2rem)" }}>
-              Sign in to save money data for real.
+              Sign in with your mobile number.
             </h1>
             <p className="page-subtitle">
-              This build now persists accounts, transactions, budgets, goals, and mandates in Supabase with row-level security per user.
+              This build persists accounts, transactions, budgets, goals, and mandates in Supabase with row-level security per user. Just your number and password.
             </p>
           </div>
 
           {enabled ? (
             <>
-              <div className="flow-note">
-                Use Google sign-in to create a secure per-user workspace. Once you are in, the provider seeds a starter dataset the first time and then all new entries sync to Supabase.
-              </div>
-              <div className="button-row">
-                <button type="button" className="button button-primary" onClick={loginWithGoogle} disabled={loading}>
-                  {loading ? "Redirecting…" : "Continue with Google"}
+              <div className="segmented-control" role="tablist" aria-label="Authentication mode">
+                <button
+                  type="button"
+                  className={`segment ${mode === "sign-in" ? "segment-active" : ""}`}
+                  onClick={() => {
+                    setMode("sign-in");
+                    setPendingVerificationPhone(null);
+                    setOtp("");
+                    setMessage(null);
+                  }}
+                >
+                  Sign in
                 </button>
-                <Link href="/dashboard" className="button button-secondary">
-                  Back to app
-                </Link>
+                <button
+                  type="button"
+                  className={`segment ${mode === "create-account" ? "segment-active" : ""}`}
+                  onClick={() => {
+                    setMode("create-account");
+                    setPendingVerificationPhone(null);
+                    setOtp("");
+                    setMessage(null);
+                  }}
+                >
+                  Create account
+                </button>
               </div>
+
+              <form className="stack-md" onSubmit={handlePrimarySubmit}>
+                <div className="form-grid">
+                  <label className="field field-full">
+                    <span className="field-label">Mobile number</span>
+                    <input
+                      className="input"
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      placeholder="98765 43210 or +91 98765 43210"
+                      value={phone}
+                      onChange={(event) => setPhone(event.target.value)}
+                      disabled={loading}
+                    />
+                    <span className="helper-text">
+                      Ten-digit Indian numbers are automatically normalized to `+91`.
+                    </span>
+                  </label>
+
+                  <label className="field field-full">
+                    <span className="field-label">Password</span>
+                    <input
+                      className="input"
+                      type="password"
+                      autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
+                      placeholder="Minimum 8 characters"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      disabled={loading}
+                    />
+                  </label>
+                </div>
+
+                <div className="flow-note">
+                  {mode === "sign-in"
+                    ? "Use the same number and password you set for this workspace. Your finance data stays scoped to your account in Supabase."
+                    : "Create an account with your number and password. If phone confirmation is enabled in Supabase, this screen will ask for the SMS code next."}
+                </div>
+
+                <div className="button-row">
+                  <button type="submit" className="button button-primary" disabled={loading}>
+                    {loading ? "Working…" : mode === "sign-in" ? "Sign in" : "Create account"}
+                  </button>
+                  <Link href="/dashboard" className="button button-secondary">
+                    Back to app
+                  </Link>
+                </div>
+              </form>
+
+              {pendingVerificationPhone ? (
+                <form className="stack-md" onSubmit={handleOtpVerification}>
+                  <div className="preview-panel">
+                    <div className="preview-kicker">Verify number</div>
+                    <p className="page-subtitle" style={{ marginTop: 0 }}>
+                      Finish account setup for {formatMobileNumber(pendingVerificationPhone) ?? pendingVerificationPhone}.
+                    </p>
+                    <div className="field" style={{ marginTop: "1rem" }}>
+                      <span className="field-label">SMS code</span>
+                      <input
+                        className="input"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        placeholder="Enter the 6-digit code"
+                        value={otp}
+                        onChange={(event) => setOtp(event.target.value)}
+                        disabled={loading}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="button-row">
+                    <button type="submit" className="button button-primary" disabled={loading}>
+                      {loading ? "Verifying…" : "Verify and continue"}
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={() => {
+                        setPendingVerificationPhone(null);
+                        setOtp("");
+                        setMessage(null);
+                      }}
+                      disabled={loading}
+                    >
+                      Use a different number
+                    </button>
+                  </div>
+                </form>
+              ) : null}
             </>
           ) : (
             <>
@@ -75,7 +308,7 @@ export default function LoginPage() {
 
           {message ? <div className="flow-note">{message}</div> : null}
         </div>
-      </section>
+      </motion.section>
     </main>
   );
 }

@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createEmptyState, createSeedState, type EntryInput, type FinanceState } from "@/lib/finance";
+import { getUserIdentity } from "@/lib/auth-phone";
 import {
   applyFinanceEntryForUser,
   ensureFinanceSeedData,
@@ -16,7 +17,7 @@ interface FinanceContextValue {
   state: FinanceState;
   status: FinanceStatus;
   hasSupabase: boolean;
-  userEmail: string | null;
+  userIdentity: string | null;
   error: string | null;
   addEntry: (entry: EntryInput) => Promise<void>;
   resetDemo: () => Promise<void>;
@@ -31,7 +32,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<FinanceState>(() => (enabled ? createEmptyState() : createSeedState()));
   const [status, setStatus] = useState<FinanceStatus>(enabled ? "loading" : "setup");
   const [userId, setUserId] = useState<string | null>(null);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userIdentity, setUserIdentity] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -48,7 +49,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
 
     if (!data.user) {
       setUserId(null);
-      setUserEmail(null);
+      setUserIdentity(null);
       setState(createEmptyState());
       setStatus("unauthenticated");
       return;
@@ -56,7 +57,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
 
     setStatus("loading");
     setUserId(data.user.id);
-    setUserEmail(data.user.email ?? null);
+    setUserIdentity(getUserIdentity(data.user));
 
     try {
       await ensureFinanceSeedData(supabase, data.user.id);
@@ -136,7 +137,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         state,
         status,
         hasSupabase: enabled,
-        userEmail,
+        userIdentity,
         error,
         addEntry,
         resetDemo,

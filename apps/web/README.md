@@ -9,7 +9,7 @@ Animated finance workspace for:
 - debit card, credit card, and UPI rails
 - mandates and recurring charges
 
-The current build stores product data in Supabase and uses Google auth for sign-in.
+The current build stores product data in Supabase and uses mobile number + password auth for sign-in.
 
 ## Quick Setup
 
@@ -50,25 +50,18 @@ This creates:
 - the `apply_finance_entry(...)` RPC
 - row-level security policies
 
-### 4. Enable Google auth in Supabase
+### 4. Enable phone auth in Supabase
 
 In Supabase:
 
 1. Go to `Authentication`
-2. Enable `Google`
-3. Add your callback URL
+2. Enable `Phone`
+3. Configure the SMS delivery/provider settings you want to use for sign-up verification
+4. Decide whether you want phone confirmation on:
+   - if `on`, the app supports entering the SMS code after account creation
+   - if `off`, new accounts can land directly in the product after sign-up
 
-Local callback URL:
-
-```text
-http://localhost:3000/auth/callback
-```
-
-Production callback URL should be:
-
-```text
-https://your-domain.com/auth/callback
-```
+The sign-in experience itself stays phone number + password on both local and production.
 
 ### 5. Start the app
 

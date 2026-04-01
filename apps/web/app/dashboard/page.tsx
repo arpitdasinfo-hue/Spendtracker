@@ -8,7 +8,7 @@ import { ActionLink, MetricCard, MotionPanel, PageHeader, StatTag } from "@/comp
 import { buildFinanceSnapshot, formatCurrency, formatLongDate, percent } from "@/lib/finance";
 
 export default function DashboardPage() {
-  const { state, resetDemo, status, userEmail, error, hasSupabase } = useFinance();
+  const { state, resetDemo, status, userIdentity, error, hasSupabase } = useFinance();
   const snapshot = buildFinanceSnapshot(state);
   const [resetting, setResetting] = useState(false);
 
@@ -68,10 +68,10 @@ export default function DashboardPage() {
                     ? "Checking your session and loading accounts, budgets, mandates, and transactions."
                     : status === "error"
                       ? error ?? "We hit a sync problem while loading your finance data."
-                      : "Use Google sign-in so every account and transaction is stored under your user with row-level security."}
+                      : "Use your mobile number and password so every account and transaction is stored under your user with row-level security."}
               </p>
             </div>
-            {userEmail ? <StatTag tone="accent">{userEmail}</StatTag> : null}
+            {userIdentity ? <StatTag tone="accent">{userIdentity}</StatTag> : null}
           </div>
           <div className="button-row">
             {hasSupabase ? (
@@ -91,7 +91,7 @@ export default function DashboardPage() {
         <MotionPanel className="hero-card" delay={0.05}>
           <div className="stack-lg">
             <div className="hero-note">
-              <span>{status === "ready" ? `Synced with Supabase${userEmail ? ` · ${userEmail}` : ""}` : "Preview shell with real product logic"}</span>
+              <span>{status === "ready" ? `Synced with Supabase${userIdentity ? ` · ${userIdentity}` : ""}` : "Preview shell with real product logic"}</span>
             </div>
 
             <div className="stack-sm">
