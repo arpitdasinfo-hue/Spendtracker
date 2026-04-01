@@ -21,6 +21,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [showCreateAccountHint, setShowCreateAccountHint] = useState(false);
   const enabled = hasSupabaseEnv();
   const primaryCtaLabel = loading ? "Working…" : mode === "sign-in" ? "Sign in" : "Create account";
 
@@ -28,7 +29,7 @@ export default function LoginPage() {
     const lower = rawMessage.toLowerCase();
 
     if (lower.includes("invalid login credentials")) {
-      return "That mobile number and password do not match.";
+      return "We couldn't sign you in with that mobile number and password. Either this account hasn't been created yet, or the password is incorrect.";
     }
 
     if (lower.includes("already registered")) {
@@ -66,6 +67,7 @@ export default function LoginPage() {
 
   async function handlePrimarySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setShowCreateAccountHint(false);
 
     const supabase = createSupabaseBrowserClient();
     if (!supabase) {
@@ -176,7 +178,14 @@ export default function LoginPage() {
       router.replace("/dashboard");
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? explainAuthError(error.message) : "Unable to complete sign-in right now.");
+      const nextMessage = error instanceof Error ? explainAuthError(error.message) : "Unable to complete sign-in right now.";
+      const shouldSuggestCreateAccount =
+        mode === "sign-in" &&
+        error instanceof Error &&
+        error.message.toLowerCase().includes("invalid login credentials");
+
+      setShowCreateAccountHint(shouldSuggestCreateAccount);
+      setMessage(nextMessage);
     } finally {
       setLoading(false);
     }
@@ -211,6 +220,7 @@ export default function LoginPage() {
                   onClick={() => {
                     setMode("sign-in");
                     setMessage(null);
+                    setShowCreateAccountHint(false);
                   }}
                 >
                   Sign in
@@ -221,6 +231,7 @@ export default function LoginPage() {
                   onClick={() => {
                     setMode("create-account");
                     setMessage(null);
+                    setShowCreateAccountHint(false);
                   }}
                 >
                   Create account
@@ -262,11 +273,30 @@ export default function LoginPage() {
 
                 <div className="flow-note">
                   {mode === "sign-in"
-                    ? "Use the same number and password you set for this workspace. Your finance data stays scoped to your account in Supabase."
-                    : "Create an account with your number and password. No OTP, no SMS provider, and your mobile number is stored in your Supabase user metadata."}
+                    ? "Sign in with the mobile number you used when you created your account. Your data stays scoped to that account in Supabase."
+                    : "First time here? Create your account with a mobile number and password. No OTP, no SMS provider, and your mobile number is stored in your Supabase user metadata."}
                 </div>
 
                 {message ? <div className="flow-note" aria-live="polite">{message}</div> : null}
+
+                {showCreateAccountHint ? (
+                  <div className="flow-note" aria-live="polite">
+                    New here? Use `Create account` first. Returning users can stay on `Sign in` and retry with the password they set earlier.
+                    <div className="button-row" style={{ marginTop: "0.85rem" }}>
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => {
+                          setMode("create-account");
+                          setMessage(null);
+                          setShowCreateAccountHint(false);
+                        }}
+                      >
+                        Switch to create account
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="button-row">
                   <button
