@@ -13,6 +13,7 @@ export async function proxy(req: NextRequest) {
   const isPublic =
     req.nextUrl.pathname.startsWith("/login") ||
     req.nextUrl.pathname.startsWith("/auth") ||
+    req.nextUrl.pathname.startsWith("/api/auth") ||
     req.nextUrl.pathname.startsWith("/_next") ||
     req.nextUrl.pathname === "/favicon.ico";
 

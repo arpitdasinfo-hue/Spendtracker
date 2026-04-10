@@ -129,7 +129,31 @@ export default function LoginPage() {
           }
         | null;
 
+      if (signupResponse.redirected) {
+        throw new Error("The account-creation request was redirected before it reached the auth service. Refresh the page and try again.");
+      }
+
+      const contentType = signupResponse.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("The account-creation service returned an unexpected response. Refresh the page and try again.");
+      }
+
       if (!signupResponse.ok) {
+        if (signupPayload?.code === "already_exists") {
+          const { error: existingUserSignInError } = await supabase.auth.signInWithPassword({
+            email: loginEmail,
+            password,
+          });
+
+          if (!existingUserSignInError) {
+            router.replace("/dashboard");
+            router.refresh();
+            return;
+          }
+
+          throw new Error("This mobile number already has an account. Use the password you set earlier, or switch to Sign in.");
+        }
+
         if (signupPayload?.code === "missing_service_role") {
           const authSettings = await loadAuthSettings();
           const emailAuthEnabled = Boolean(authSettings?.external?.email);
