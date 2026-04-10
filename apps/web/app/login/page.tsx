@@ -156,8 +156,14 @@ export default function LoginPage() {
 
         if (signupPayload?.code === "missing_service_role") {
           const authSettings = await loadAuthSettings();
-          const emailAuthEnabled = Boolean(authSettings?.external?.email);
-          const mailerAutoconfirm = Boolean(authSettings?.mailer_autoconfirm);
+          if (!authSettings) {
+            throw new Error(
+              "Direct account creation is not configured on the server yet. Add SUPABASE_SERVICE_ROLE_KEY in Vercel, or disable email confirmation in Supabase Auth -> Email for the fallback flow."
+            );
+          }
+
+          const emailAuthEnabled = Boolean(authSettings.external?.email);
+          const mailerAutoconfirm = Boolean(authSettings.mailer_autoconfirm);
 
           if (!emailAuthEnabled) {
             throw new Error("Supabase email auth is disabled. Enable Authentication -> Email or add SUPABASE_SERVICE_ROLE_KEY to keep this mobile-number login design working.");
